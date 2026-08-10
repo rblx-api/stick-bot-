@@ -63,12 +63,12 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
         # Definir la pregunta según el tipo
-        if tipo_ticket in ["duels", "lagger", "paid_sources"]:
+        if tipo_ticket in ["duels", "paid_sources"]:
             pregunta = "💰 ¿Qué vas a pagar? (describe el monto, método, etc.)"
         elif tipo_ticket == "partner":
             pregunta = "👥 ¿Cuántos miembros tiene tu servidor?"
         elif tipo_ticket == "report":
-            pregunta = "📢 ¿Qué necesitas reportar? (describe la situación)"
+            pregunta = "📢 ¿Cuál es el problema que quieres reportar? (describe la situación)"
         else:
             pregunta = "Describe tu consulta:"
         
@@ -120,7 +120,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
 
             nombres = {
                 "duels": "Duelos ⚔️",
-                "lagger": "Lagger 🐢",
                 "paid_sources": "Paid Sources 💰",
                 "partner": "Partner / Alianzas 🤝",
                 "report": "Reportar 📢"
@@ -146,13 +145,12 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)}", ephemeral=True)
 
 # =============================================
-# SELECT DEL PANEL PRINCIPAL
+# SELECT DEL PANEL PRINCIPAL (sin Lagger)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Duelos", value="duels", description="Scripts y duelos", emoji="⚔️"),
-            discord.SelectOption(label="Lagger", value="lagger", description="Problemas de lag", emoji="🐢"),
             discord.SelectOption(label="Paid Sources", value="paid_sources", description="Fuentes pagadas", emoji="💰"),
             discord.SelectOption(label="Alianzas", value="partner", description="Alianzas y coordinación", emoji="🤝"),
             discord.SelectOption(label="Reportar", value="report", description="Reportar algo", emoji="📢"),
@@ -279,8 +277,9 @@ async def on_ready():
                 "🔥🔥  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐀𝐇𝐎𝐑𝐀  🔥🔥\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   ⚔️  Compra de Scripts de Duelos\n"
-                "   🌀  Lagger / Paid Sources\n"
-                "   🤝  Alianzas y Coordinación\n\n"
+                "   💰  Paid Sources\n"
+                "   🤝  Alianzas y Coordinación\n"
+                "   📢  Reportar problemas\n\n"
                 "   ✅ Atención 24/7\n"
                 "   ✅ Soporte rápido y confiable\n"
                 "   ✅ Trato directo sin rodeos\n\n"
@@ -290,8 +289,9 @@ async def on_ready():
                 "   🔥🔥  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐍𝐎𝐖  🔥🔥\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   ⚔️  Duel Scripts Purchase\n"
-                "   🌀  Lagger / Paid Sources\n"
-                "   🤝  Alliances & Coordination\n\n"
+                "   💰  Paid Sources\n"
+                "   🤝  Alliances & Coordination\n"
+                "   📢  Report issues\n\n"
                 "   ✅ 24/7 Support\n"
                 "   ✅ Fast and reliable service\n"
                 "   ✅ Direct and clear deals\n\n"
@@ -454,8 +454,9 @@ async def panel_cmd(ctx):
             "🔥🔥  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐀𝐇𝐎𝐑𝐀  🔥🔥\n"
             "═══════════════════════════════════════════════════════════\n\n"
             "   ⚔️  Compra de Scripts de Duelos\n"
-            "   🌀  Lagger / Paid Sources\n"
-            "   🤝  Alianzas y Coordinación\n\n"
+            "   💰  Paid Sources\n"
+            "   🤝  Alianzas y Coordinación\n"
+            "   📢  Reportar problemas\n\n"
             "   ✅ Atención 24/7\n"
             "   ✅ Soporte rápido y confiable\n"
             "   ✅ Trato directo sin rodeos\n\n"
@@ -465,8 +466,9 @@ async def panel_cmd(ctx):
             "   🔥🔥  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐍𝐎𝐖  🔥🔥\n"
             "═══════════════════════════════════════════════════════════\n\n"
             "   ⚔️  Duel Scripts Purchase\n"
-            "   🌀  Lagger / Paid Sources\n"
-            "   🤝  Alliances & Coordination\n\n"
+            "   💰  Paid Sources\n"
+            "   🤝  Alliances & Coordination\n"
+            "   📢  Report issues\n\n"
             "   ✅ 24/7 Support\n"
             "   ✅ Fast and reliable service\n"
             "   ✅ Direct and clear deals\n\n"
