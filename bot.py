@@ -13,6 +13,7 @@ if not TOKEN:
 
 ROL_PERMITIDO_ID = 1519744694416965782      # Rol que puede warnear, banear y gestionar tickets
 CANAL_PANEL_ID = 1519029606684823732        # Canal donde se envía el panel de tickets
+CANAL_BIENVENIDA = 1502668382640668853      # Canal donde se enviarán las bienvenidas (cámbialo)
 CATEGORIA_TICKETS_ID = None                 # ID de categoría (opcional, si quieres fijar una)
 ARCHIVO_WARNS = 'warns.json'                # Archivo para almacenar los warns
 
@@ -21,7 +22,7 @@ ARCHIVO_WARNS = 'warns.json'                # Archivo para almacenar los warns
 # =============================================
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True
+intents.members = True  # Necesario para el evento de bienvenida
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -311,6 +312,26 @@ async def on_ready():
         print(f"✅ Panel enviado a {canal.name}")
     else:
         print("❌ Canal de panel no encontrado. Verifica el ID.")
+
+# =============================================
+# EVENTO DE BIENVENIDA (NUEVO)
+# =============================================
+@bot.event
+async def on_member_join(member):
+    canal = bot.get_channel(CANAL_BIENVENIDA)
+    if canal is None:
+        print("❌ Canal de bienvenida no encontrado. Verifica el ID.")
+        return
+
+    embed = discord.Embed(
+        title="¡Bienvenido a Stick Hub!",
+        description=f"{member.mention} espero disfrutes del servidor 🎉",
+        color=discord.Color.green()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Miembro #{member.guild.member_count}")
+
+    await canal.send(embed=embed)
 
 # =============================================
 # EVENTO ON_MESSAGE: procesa 'stick warn', 'stick unwarn' y 'stick ban'
