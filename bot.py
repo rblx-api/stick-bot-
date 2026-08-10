@@ -241,20 +241,24 @@ class TicketButtons(ui.View):
 
         # Marcar como reclamado
         tickets_activos[self.canal_id]['claimado_por'] = interaction.user.id
+        
+        # Obtener el usuario que abrió el ticket
+        usuario_id = tickets_activos[self.canal_id]['usuario_id']
+        usuario = interaction.guild.get_member(usuario_id)
 
         # Actualizar la vista (quitar el botón de claim)
         nueva_vista = TicketButtonsAfterClaim(self.usuario_id, self.canal_id, interaction.user)
         await interaction.response.edit_message(view=nueva_vista)
 
-        # Enviar mensaje al canal del ticket etiquetando al reclamador
+        # Enviar mensaje al canal del ticket etiquetando al usuario que abrió el ticket
         canal = interaction.guild.get_channel(self.canal_id)
         if canal:
             embed = discord.Embed(
                 title="📌 Ticket reclamado",
-                description=f"**Este ticket ha sido reclamado por {interaction.user.mention}**\n\nEl staff se encargará de tu caso.",
+                description=f"**{usuario.mention if usuario else 'Usuario'}, tu ticket ha sido reclamado por {interaction.user.mention}**\n\nEl staff se encargará de tu caso.",
                 color=discord.Color.green()
             )
-            await canal.send(f"{interaction.user.mention} ha reclamado este ticket", embed=embed)
+            await canal.send(embed=embed)
 
 # =============================================
 # VISTA DESPUÉS DE CLAIM (sin el botón de claim)
@@ -366,23 +370,21 @@ async def on_member_join(member):
         # Obtener todas las invitaciones del servidor
         invites = await member.guild.invites()
         
-        # Buscar al invitador
+        # Buscar al invitador usando audit logs
         invitador = None
-        max_uses = 0
         
-        # Almacenar las invitaciones actuales en un diccionario para comparar después
-        # (Este método es más confiable con el cache)
-        async for entry in member.guild.audit_logs(limit=5, action=discord.AuditLogAction.invite_create):
-            # Verificar si la invitación fue creada recientemente
+        # Método 1: Usar audit logs para encontrar quién creó la invitación
+        async for entry in member.guild.audit_logs(limit=10, action=discord.AuditLogAction.invite_create):
             for invite in invites:
-                if invite.code == entry.target.code:
-                    # Esta invitación fue creada por el usuario del log
-                    invitador = entry.user
-                    break
+                if hasattr(entry.target, 'code') and entry.target.code == invite.code:
+                    # Verificar si esta invitación tiene más usos que antes
+                    if invite.uses > 0:
+                        invitador = entry.user
+                        break
             if invitador:
                 break
         
-        # Si no se encontró por audit logs, intentar con el método de conteo de usos
+        # Método 2: Si no se encontró, intentar con el método de conteo de usos
         if invitador is None:
             # Obtener las invitaciones antes (usando cache)
             invites_before = getattr(member.guild, '_invites_cache', None)
@@ -442,7 +444,7 @@ async def on_member_join(member):
         canal_inv = bot.get_channel(CANAL_INVITACIONES)
         if canal_inv:
             embed = discord.Embed(
-                description=f"{member.mention} se ha unido al servidor (no se pudo detectar el invitador)",
+                description=f"{member.mention} se ha unido al servidor (error al detectar invitación)",
                 color=discord.Color.blue()
             )
             embed.set_thumbnail(url=member.display_avatar.url)
