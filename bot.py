@@ -55,27 +55,31 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODAL PARA PREGUNTAR AL USUARIO (TICKETS)
+# MODAL PARA PREGUNTAR AL USUARIO (TICKETS) - CORREGIDO
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
         super().__init__()
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
-        # Definir la pregunta según el tipo
+        # Definir la pregunta según el tipo (label corto, placeholder largo)
         if tipo_ticket in ["duels", "paid_sources"]:
-            pregunta = "💰 ¿Qué vas a pagar? (describe el monto, método, etc.)"
+            label = "💰 Monto a pagar"
+            placeholder = "Describe el monto, método de pago, etc."
         elif tipo_ticket == "partner":
-            pregunta = "👥 ¿Cuántos miembros tiene tu servidor?"
+            label = "👥 Miembros"
+            placeholder = "¿Cuántos miembros tiene tu servidor?"
         elif tipo_ticket == "report":
-            pregunta = "📢 ¿Cuál es el problema que quieres reportar? (describe la situación)"
+            label = "📢 Problema"
+            placeholder = "Describe el problema que quieres reportar"
         else:
-            pregunta = "Describe tu consulta:"
+            label = "Consulta"
+            placeholder = "Describe tu consulta"
         
         self.respuesta_input = ui.TextInput(
-            label=pregunta,
+            label=label,
             style=discord.TextStyle.paragraph,
-            placeholder="Escribe tu respuesta aquí...",
+            placeholder=placeholder,
             required=True,
             max_length=500
         )
