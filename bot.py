@@ -212,6 +212,7 @@ class TicketButtons(ui.View):
             await interaction.response.send_message("❌ Este ticket ya está cerrado.", ephemeral=True)
             return
 
+        # Marcar como cerrado antes de eliminar
         tickets_activos[self.canal_id]['abierto'] = False
         canal = interaction.guild.get_channel(self.canal_id)
         if canal:
@@ -238,19 +239,22 @@ class TicketButtons(ui.View):
             await interaction.response.send_message("❌ Este ticket ya ha sido reclamado.", ephemeral=True)
             return
 
+        # Marcar como reclamado
         tickets_activos[self.canal_id]['claimado_por'] = interaction.user.id
 
+        # Actualizar la vista (quitar el botón de claim)
         nueva_vista = TicketButtonsAfterClaim(self.usuario_id, self.canal_id, interaction.user)
         await interaction.response.edit_message(view=nueva_vista)
 
+        # Enviar mensaje al canal del ticket etiquetando al reclamador
         canal = interaction.guild.get_channel(self.canal_id)
         if canal:
             embed = discord.Embed(
-                title="Ticket reclamado",
-                description=f"Reclamado por {interaction.user.mention}",
+                title="📌 Ticket reclamado",
+                description=f"**Este ticket ha sido reclamado por {interaction.user.mention}**\n\nEl staff se encargará de tu caso.",
                 color=discord.Color.green()
             )
-            await canal.send(embed=embed)
+            await canal.send(f"{interaction.user.mention} ha reclamado este ticket", embed=embed)
 
 # =============================================
 # VISTA DESPUÉS DE CLAIM (sin el botón de claim)
@@ -353,34 +357,45 @@ async def on_member_join(member):
         await canal.send(embed=embed)
     
     # =============================================
-    # SISTEMA DE INVITACIONES
+    # SISTEMA DE INVITACIONES (MEJORADO)
     # =============================================
     try:
-        # Obtener las invitaciones del servidor antes de que el usuario se una
-        invites_before = await member.guild.invites()
-        
         # Esperar un momento para que Discord registre la nueva invitación
-        await discord.utils.sleep(1)
+        await discord.utils.sleep(2)
         
-        # Obtener las invitaciones después de que el usuario se una
-        invites_after = await member.guild.invites()
+        # Obtener todas las invitaciones del servidor
+        invites = await member.guild.invites()
         
-        # Buscar la invitación que aumentó su uso (esa fue la usada)
+        # Buscar al invitador
         invitador = None
-        for invite in invites_after:
-            # Buscar la invitación correspondiente antes
-            before = next((i for i in invites_before if i.code == invite.code), None)
-            if before is not None and invite.uses > before.uses:
-                invitador = invite.inviter
-                break
+        max_uses = 0
         
-        # Si no se encuentra por el método anterior, intentar obtenerla de otra forma
-        if invitador is None:
-            # Alternativa: usar el sistema de auditoría (si el bot tiene permisos)
-            async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.invite_create):
-                if entry.target == member:
+        # Almacenar las invitaciones actuales en un diccionario para comparar después
+        # (Este método es más confiable con el cache)
+        async for entry in member.guild.audit_logs(limit=5, action=discord.AuditLogAction.invite_create):
+            # Verificar si la invitación fue creada recientemente
+            for invite in invites:
+                if invite.code == entry.target.code:
+                    # Esta invitación fue creada por el usuario del log
                     invitador = entry.user
                     break
+            if invitador:
+                break
+        
+        # Si no se encontró por audit logs, intentar con el método de conteo de usos
+        if invitador is None:
+            # Obtener las invitaciones antes (usando cache)
+            invites_before = getattr(member.guild, '_invites_cache', None)
+            
+            if invites_before is not None:
+                for invite in invites:
+                    before = next((i for i in invites_before if i.code == invite.code), None)
+                    if before is not None and invite.uses > before.uses:
+                        invitador = invite.inviter
+                        break
+            
+            # Guardar las invitaciones actuales para futuras comparaciones
+            member.guild._invites_cache = invites
         
         # Si encontramos al invitador
         if invitador and invitador != member:  # No contar auto-invitaciones
@@ -423,6 +438,15 @@ async def on_member_join(member):
                 
     except Exception as e:
         print(f"❌ Error al procesar la invitación: {e}")
+        # Enviar un mensaje simple en caso de error
+        canal_inv = bot.get_channel(CANAL_INVITACIONES)
+        if canal_inv:
+            embed = discord.Embed(
+                description=f"{member.mention} se ha unido al servidor (no se pudo detectar el invitador)",
+                color=discord.Color.blue()
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await canal_inv.send(embed=embed)
 
 # =============================================
 # EVENTO DE DESPEDIDA (con embed e imagen grande)
