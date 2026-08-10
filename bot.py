@@ -315,7 +315,7 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTO DE BIENVENIDA (con embed)
+# EVENTO DE BIENVENIDA (con embed y miniatura)
 # =============================================
 @bot.event
 async def on_member_join(member):
@@ -331,13 +331,18 @@ async def on_member_join(member):
         await canal.send(embed=embed)
 
 # =============================================
-# EVENTO DE DESPEDIDA
+# EVENTO DE DESPEDIDA (con embed e imagen grande)
 # =============================================
 @bot.event
 async def on_member_remove(member):
     canal = bot.get_channel(CANAL_DESPEDIDA)
     if canal:
-        await canal.send(f"{member.mention} gracias por haber sido parte de Stick Hub, espero volverte a ver 👋")
+        embed = discord.Embed(
+            description=f"{member.mention} gracias por haber sido parte de Stick Hub, espero volverte a ver 👋",
+            color=discord.Color.red()
+        )
+        embed.set_image(url=member.display_avatar.url)  # Imagen grande en el mensaje
+        await canal.send(embed=embed)
 
 # =============================================
 # EVENTO ON_MESSAGE: procesa 'stick warn', 'stick unwarn' y 'stick ban'
