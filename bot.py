@@ -15,8 +15,10 @@ ROL_PERMITIDO_ID = 1519744694416965782      # Rol que puede warnear, banear y ge
 CANAL_PANEL_ID = 1519029606684823732        # Canal donde se envía el panel de tickets
 CANAL_BIENVENIDA = 1502668382640668853      # Canal de bienvenida
 CANAL_DESPEDIDA  = 1502668463435419839      # Canal de despedida
+CANAL_INVITACIONES = 1503417211073859644    # Canal donde se envían las invitaciones
 CATEGORIA_TICKETS_ID = None                 # ID de categoría (opcional, si quieres fijar una)
 ARCHIVO_WARNS = 'warns.json'                # Archivo para almacenar los warns
+ARCHIVO_INVITES = "invites_data.json"       # Archivo para almacenar las invitaciones
 
 # =============================================
 # INTENTS Y BOT
@@ -24,6 +26,7 @@ ARCHIVO_WARNS = 'warns.json'                # Archivo para almacenar los warns
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True  # Necesario para bienvenidas/despedidas
+intents.invites = True  # Necesario para detectar invitaciones
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -42,6 +45,19 @@ def cargar_warns():
 def guardar_warns(warns):
     with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
         json.dump(warns, f, indent=4, ensure_ascii=False)
+
+# =============================================
+# FUNCIONES PARA MANEJO DE INVITACIONES (JSON)
+# =============================================
+def cargar_invites():
+    if os.path.exists(ARCHIVO_INVITES):
+        with open(ARCHIVO_INVITES, "r", encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def guardar_invites(datos):
+    with open(ARCHIVO_INVITES, "w", encoding='utf-8') as f:
+        json.dump(datos, f, indent=4, ensure_ascii=False)
 
 # =============================================
 # FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
@@ -274,6 +290,11 @@ class TicketButtonsAfterClaim(ui.View):
 @bot.event
 async def on_ready():
     print(f'✅ Bot conectado como {bot.user}')
+    # Cargar datos de invitaciones
+    global invites_data
+    invites_data = cargar_invites()
+    print(f"📊 Datos de invitaciones cargados: {len(invites_data)} usuarios registrados")
+    
     # Enviar el panel al canal configurado
     canal = bot.get_channel(CANAL_PANEL_ID)
     if canal:
@@ -319,6 +340,7 @@ async def on_ready():
 # =============================================
 @bot.event
 async def on_member_join(member):
+    # Enviar bienvenida
     canal = bot.get_channel(CANAL_BIENVENIDA)
     if canal:
         embed = discord.Embed(
@@ -329,6 +351,78 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Miembro #{member.guild.member_count}")
         await canal.send(embed=embed)
+    
+    # =============================================
+    # SISTEMA DE INVITACIONES
+    # =============================================
+    try:
+        # Obtener las invitaciones del servidor antes de que el usuario se una
+        invites_before = await member.guild.invites()
+        
+        # Esperar un momento para que Discord registre la nueva invitación
+        await discord.utils.sleep(1)
+        
+        # Obtener las invitaciones después de que el usuario se una
+        invites_after = await member.guild.invites()
+        
+        # Buscar la invitación que aumentó su uso (esa fue la usada)
+        invitador = None
+        for invite in invites_after:
+            # Buscar la invitación correspondiente antes
+            before = next((i for i in invites_before if i.code == invite.code), None)
+            if before is not None and invite.uses > before.uses:
+                invitador = invite.inviter
+                break
+        
+        # Si no se encuentra por el método anterior, intentar obtenerla de otra forma
+        if invitador is None:
+            # Alternativa: usar el sistema de auditoría (si el bot tiene permisos)
+            async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.invite_create):
+                if entry.target == member:
+                    invitador = entry.user
+                    break
+        
+        # Si encontramos al invitador
+        if invitador and invitador != member:  # No contar auto-invitaciones
+            # Sumar una invitación al invitador
+            global invites_data
+            invitador_id = str(invitador.id)
+            invites_data[invitador_id] = invites_data.get(invitador_id, 0) + 1
+            guardar_invites(invites_data)
+            
+            # Enviar mensaje al canal de invitaciones
+            canal_inv = bot.get_channel(CANAL_INVITACIONES)
+            if canal_inv:
+                embed = discord.Embed(
+                    title="🎉 ¡Nuevo miembro invitado!",
+                    description=(
+                        f"{invitador.mention} **tienes {invites_data[invitador_id]} invitaciones**\n"
+                        f"¡Sigue así! 🚀"
+                    ),
+                    color=discord.Color.gold()
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.add_field(
+                    name="Nuevo miembro",
+                    value=f"{member.mention} se ha unido al servidor",
+                    inline=False
+                )
+                embed.set_footer(text=f"Total de invitaciones: {invites_data[invitador_id]}")
+                await canal_inv.send(embed=embed)
+        
+        else:
+            # Si no se encuentra invitador (quizás se unió por invitación del servidor)
+            canal_inv = bot.get_channel(CANAL_INVITACIONES)
+            if canal_inv:
+                embed = discord.Embed(
+                    description=f"{member.mention} se ha unido al servidor (invitación desconocida)",
+                    color=discord.Color.blue()
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                await canal_inv.send(embed=embed)
+                
+    except Exception as e:
+        print(f"❌ Error al procesar la invitación: {e}")
 
 # =============================================
 # EVENTO DE DESPEDIDA (con embed e imagen grande)
@@ -341,7 +435,7 @@ async def on_member_remove(member):
             description=f"{member.mention} gracias por haber sido parte de Stick Hub, espero volverte a ver 👋",
             color=discord.Color.red()
         )
-        embed.set_image(url=member.display_avatar.url)  # Imagen grande en el mensaje
+        embed.set_image(url=member.display_avatar.url)
         await canal.send(embed=embed)
 
 # =============================================
@@ -477,6 +571,70 @@ async def on_message(message):
 
     # Procesar otros posibles comandos (por si agregas más adelante)
     await bot.process_commands(message)
+
+# =============================================
+# COMANDOS DE INVITACIONES
+# =============================================
+@bot.command(name="invites")
+async def mostrar_invitaciones(ctx, miembro: discord.Member = None):
+    """Comando para ver cuántas invitaciones tiene un usuario"""
+    if miembro is None:
+        miembro = ctx.author
+    
+    global invites_data
+    invitaciones = invites_data.get(str(miembro.id), 0)
+    
+    embed = discord.Embed(
+        title="📊 Estadísticas de invitaciones",
+        description=f"{miembro.mention} tiene **{invitaciones}** invitaciones",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@bot.command(name="ranking")
+async def ranking_invitaciones(ctx):
+    """Muestra el ranking de los mejores invitadores"""
+    global invites_data
+    if not invites_data:
+        await ctx.send("❌ No hay datos de invitaciones aún.")
+        return
+    
+    # Ordenar los usuarios por número de invitaciones (de mayor a menor)
+    ranking = sorted(invites_data.items(), key=lambda x: x[1], reverse=True)
+    
+    # Crear el mensaje
+    mensaje = "🏆 **Ranking de invitaciones**\n\n"
+    for i, (user_id, count) in enumerate(ranking[:10], 1):  # Top 10
+        try:
+            usuario = await bot.fetch_user(int(user_id))
+            mensaje += f"**#{i}** {usuario.mention} - {count} invitaciones\n"
+        except:
+            mensaje += f"**#{i}** Usuario desconocido - {count} invitaciones\n"
+    
+    await ctx.send(mensaje)
+
+# =============================================
+# COMANDOS DE ADMINISTRACIÓN PARA INVITACIONES
+# =============================================
+@bot.command(name="reset_invites")
+@commands.has_permissions(administrator=True)
+async def resetear_invitaciones(ctx, miembro: discord.Member):
+    """Reinicia las invitaciones de un usuario (solo admins)"""
+    global invites_data
+    invites_data[str(miembro.id)] = 0
+    guardar_invites(invites_data)
+    await ctx.send(f"✅ Las invitaciones de {miembro.mention} han sido reiniciadas.")
+
+@bot.command(name="add_invites")
+@commands.has_permissions(administrator=True)
+async def agregar_invitaciones(ctx, miembro: discord.Member, cantidad: int):
+    """Añade invitaciones manualmente a un usuario (solo admins)"""
+    global invites_data
+    user_id = str(miembro.id)
+    invites_data[user_id] = invites_data.get(user_id, 0) + cantidad
+    guardar_invites(invites_data)
+    await ctx.send(f"✅ Se añadieron {cantidad} invitaciones a {miembro.mention}. Total: {invites_data[user_id]}")
 
 # =============================================
 # COMANDO !panel (para reenviar el panel manualmente)
