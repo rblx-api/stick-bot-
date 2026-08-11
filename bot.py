@@ -3,6 +3,9 @@ import json
 import discord
 from discord import ui
 from discord.ext import commands
+import re
+from collections import defaultdict
+import asyncio
 
 # =============================================
 # CONFIGURACIÓN (cambia los valores según tu servidor)
@@ -12,6 +15,7 @@ if not TOKEN:
     raise ValueError("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
 
 ROL_PERMITIDO_ID = 1519744694416965782      # Rol que puede warnear, banear y gestionar tickets
+ROL_EXENTO_ID = 1519793995264294972         # Rol exento de moderación automática
 CANAL_PANEL_ID = 1519029606684823732        # Canal donde se envía el panel de tickets
 CANAL_BIENVENIDA = 1502668382640668853      # Canal de bienvenida
 CANAL_DESPEDIDA  = 1502668463435419839      # Canal de despedida
@@ -32,6 +36,11 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Diccionario para tickets activos (se mantiene en memoria)
 tickets_activos = {}
+
+# Diccionario para control de spam (mensajes por usuario)
+spam_counter = defaultdict(list)
+SPAM_LIMIT = 5  # Número máximo de mensajes permitidos en un período
+SPAM_TIME = 10  # Período de tiempo en segundos
 
 # =============================================
 # FUNCIONES PARA MANEJO DE WARNS (JSON)
@@ -58,6 +67,86 @@ def cargar_invites():
 def guardar_invites(datos):
     with open(ARCHIVO_INVITES, "w", encoding='utf-8') as f:
         json.dump(datos, f, indent=4, ensure_ascii=False)
+
+# =============================================
+# FUNCIONES DE MODERACIÓN
+# =============================================
+def contiene_link(texto):
+    """Detecta si el mensaje contiene un enlace"""
+    patrones = [
+        r'https?://[^\s]+',
+        r'discord\.gg/[^\s]+',
+        r'discord\.com/invite/[^\s]+',
+        r'discordapp\.com/invite/[^\s]+',
+        r'bit\.ly/[^\s]+',
+        r'tinyurl\.com/[^\s]+',
+        r'www\.[^\s]+\.[^\s]+'
+    ]
+    for patron in patrones:
+        if re.search(patron, texto, re.IGNORECASE):
+            return True
+    return False
+
+def contiene_nsfw(texto):
+    """Detecta si el mensaje contiene contenido NSFW"""
+    palabras_nsfw = [
+        'porno', 'xxx', 'nsfw', 'porn', 'porno', 'xxx',
+        'chica', 'chicas', 'mujer', 'mujeres', 'desnuda',
+        'desnudo', 'tetas', 'culo', 'cojer', 'coger',
+        'sexo', 'sexual', 'porno', 'pornografía', 'pornografia'
+    ]
+    texto_lower = texto.lower()
+    for palabra in palabras_nsfw:
+        if palabra in texto_lower:
+            return True
+    return False
+
+def contiene_palabras_prohibidas(texto):
+    """Detecta si el mensaje contiene palabras prohibidas"""
+    palabras_prohibidas = [
+        'check my bio', 'busco promotores', 'unanse a mi dc',
+        'script gratis', 'loadstring', 'promotor', 'promotores',
+        'bio', 'md', 'check mi bio', 'manden md', 'manda md',
+        'pase script', 'paso script', 'promotor de script',
+        'mi dc en bio', 'bio:', 'md:'
+    ]
+    texto_lower = texto.lower()
+    for palabra in palabras_prohibidas:
+        if palabra in texto_lower:
+            return True
+    return False
+
+async def aplicar_warn(member, razon, canal=None):
+    """Aplica un warn a un usuario y si tiene 3 warns lo banea"""
+    warns = cargar_warns()
+    user_id = str(member.id)
+    warns[user_id] = warns.get(user_id, 0) + 1
+    guardar_warns(warns)
+    
+    # Enviar mensaje de warn
+    if canal:
+        await canal.send(f"⚠️ {member.mention} ha recibido un warn por: {razon}. Total: {warns[user_id]}")
+    
+    # Si llega a 3 warnings, banear automáticamente
+    if warns[user_id] >= 3:
+        try:
+            await member.ban(reason=f"3 warnings acumulados por {razon}")
+            if canal:
+                await canal.send(f"🚫 {member.mention} ha sido baneado por acumular 3 warnings.")
+            # Eliminar warnings del usuario después del baneo
+            del warns[user_id]
+            guardar_warns(warns)
+        except Exception as e:
+            if canal:
+                await canal.send(f"❌ Error al banear a {member.mention}: {e}")
+
+def es_exento(member):
+    """Verifica si el usuario tiene alguno de los roles exentos"""
+    roles_exentos = [ROL_PERMITIDO_ID, ROL_EXENTO_ID]
+    for rol_id in roles_exentos:
+        if discord.utils.get(member.roles, id=rol_id):
+            return True
+    return False
 
 # =============================================
 # FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
@@ -465,138 +554,90 @@ async def on_member_remove(member):
         await canal.send(embed=embed)
 
 # =============================================
-# EVENTO ON_MESSAGE: procesa 'stick warn', 'stick unwarn' y 'stick ban'
+# EVENTO ON_MESSAGE: SISTEMA DE MODERACIÓN AUTOMÁTICA + COMANDOS
 # =============================================
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    # Solo procesar mensajes que empiecen con "stick "
-    if not message.content.lower().startswith('stick '):
+    # Verificar si el usuario es exento de moderación
+    if es_exento(message.author):
         await bot.process_commands(message)
         return
 
-    partes = message.content.split()
-    if len(partes) < 2:
-        await bot.process_commands(message)
-        return
+    # =============================================
+    # SISTEMA DE MODERACIÓN AUTOMÁTICA
+    # =============================================
+    mensaje_borrado = False
+    razon = None
+    contenido = message.content
 
-    comando = partes[1].lower()  # warn, unwarn, ban, etc.
+    # 1. Verificar links
+    if contiene_link(contenido):
+        razon = "No se permiten enlaces"
+        mensaje_borrado = True
 
-    # Verificar que haya una mención (todos estos comandos requieren mención)
-    if len(message.mentions) == 0:
-        await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban @usuario`")
-        return
+    # 2. Verificar NSFW
+    elif contiene_nsfw(contenido):
+        razon = "Contenido inapropiado (NSFW)"
+        mensaje_borrado = True
 
-    user = message.mentions[0]
+    # 3. Verificar palabras prohibidas
+    elif contiene_palabras_prohibidas(contenido):
+        razon = "Palabras prohibidas (promoción no autorizada)"
+        mensaje_borrado = True
 
-    # ============================================================
-    # COMPROBACIÓN DE ROL (todos los comandos requieren el mismo rol)
-    # ============================================================
-    rol = discord.utils.get(message.author.roles, id=ROL_PERMITIDO_ID)
-    if not rol:
-        await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
-        return
+    # 4. Verificar spam (mensajes repetidos)
+    else:
+        # Control de spam
+        user_id = message.author.id
+        current_time = message.created_at.timestamp()
+        
+        # Limpiar mensajes antiguos del contador
+        spam_counter[user_id] = [t for t in spam_counter[user_id] if current_time - t < SPAM_TIME]
+        
+        # Añadir mensaje actual
+        spam_counter[user_id].append(current_time)
+        
+        # Si el usuario supera el límite de mensajes
+        if len(spam_counter[user_id]) > SPAM_LIMIT:
+            razon = "Spam (más de 5 mensajes en 10 segundos)"
+            mensaje_borrado = True
 
-    # ------------------------------------------------------------
-    #  COMANDO: warn
-    # ------------------------------------------------------------
-    if comando == 'warn':
-        warns = cargar_warns()
-        user_id = str(user.id)
-        warns[user_id] = warns.get(user_id, 0) + 1
-        guardar_warns(warns)
-
-        await message.channel.send(f"⚠️ {user.mention} ha recibido un warn. Total: {warns[user_id]}")
-
-        # Auto‑baneo al llegar a 3 warns
-        if warns[user_id] >= 3:
-            # Verificar permisos del bot
-            if not message.guild.me.guild_permissions.ban_members:
-                await message.channel.send("❌ El bot no tiene permisos para banear. No puedo ejecutar el baneo automático.")
-                return
-
-            # Verificar jerarquía
-            if user == message.guild.owner:
-                await message.channel.send("❌ No puedo banear al propietario del servidor.")
-                return
-
-            if message.guild.me.top_role <= user.top_role:
-                await message.channel.send(f"❌ Mi rol (`{message.guild.me.top_role.name}`) no es superior al de {user.mention} (`{user.top_role.name}`).")
-                return
-
-            try:
-                await user.ban(reason="3 warnings acumulados (ban automático)")
-                await message.channel.send(f"🚫 {user.mention} ha sido baneado por acumular 3 warnings.")
-                # Eliminar warnings del usuario después del baneo
-                del warns[user_id]
-                guardar_warns(warns)
-            except Exception as e:
-                await message.channel.send(f"❌ Error al banear: {e}")
-
-    # ------------------------------------------------------------
-    #  COMANDO: unwarn
-    # ------------------------------------------------------------
-    elif comando == 'unwarn':
-        warns = cargar_warns()
-        user_id = str(user.id)
-        if user_id not in warns or warns[user_id] <= 0:
-            await message.channel.send(f"ℹ️ {user.mention} no tiene warnings para quitar.")
-            return
-
-        warns[user_id] -= 1
-        if warns[user_id] == 0:
-            del warns[user_id]
-        guardar_warns(warns)
-
-        await message.channel.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
-
-    # ------------------------------------------------------------
-    #  COMANDO: ban
-    # ------------------------------------------------------------
-    elif comando == 'ban':
-        # Verificar permisos del bot
-        bot_member = message.guild.me
-        if not bot_member.guild_permissions.ban_members:
-            await message.channel.send("❌ **Error de permisos:** El bot no tiene el permiso `Banear miembros`.\n"
-                                       "Por favor, asígnale ese permiso en la configuración del servidor.")
-            return
-
-        # Verificar auto‑baneo
-        if user == message.author:
-            await message.channel.send("❌ No puedes banearte a ti mismo.")
-            return
-        if user == bot.user:
-            await message.channel.send("❌ No puedes banear al bot.")
-            return
-
-        # Jerarquía
-        if user == message.guild.owner:
-            await message.channel.send("❌ No puedo banear al propietario del servidor.")
-            return
-
-        if bot_member.top_role <= user.top_role:
-            await message.channel.send(f"❌ **Error de jerarquía:** Mi rol más alto (`{bot_member.top_role.name}`) "
-                                       f"no es superior al de {user.mention} (`{user.top_role.name}`).\n"
-                                       f"Para banearlo, mi rol debe estar **por encima** del suyo en la lista de roles.")
-            return
-
-        # Intentar banear
+    # Si se detectó una violación
+    if mensaje_borrado:
         try:
-            await user.ban(reason=f"Baneado por {message.author} (comando stick ban)")
-            await message.channel.send(f"✅ {user.mention} ha sido baneado correctamente.")
-        except discord.Forbidden:
-            await message.channel.send("❌ **Error 403 (Prohibido):** No tengo permisos suficientes.\n"
-                                       "Asegúrate de que mi rol esté por encima del usuario objetivo y que tenga el permiso `Banear miembros`.")
-        except discord.HTTPException as e:
-            await message.channel.send(f"❌ **Error HTTP:** {e.status} - {e.text}\n"
-                                       f"Revisa la conexión o intenta de nuevo.")
+            # Borrar el mensaje
+            await message.delete()
+            
+            # Aplicar warn al usuario
+            await aplicar_warn(message.author, razon, message.channel)
+            
+            # Enviar mensaje de advertencia
+            embed = discord.Embed(
+                title="⚠️ Moderación Automática",
+                description=f"**{message.author.mention}** tu mensaje ha sido eliminado por: **{razon}**",
+                color=discord.Color.red()
+            )
+            await message.channel.send(embed=embed, delete_after=10)
+            
         except Exception as e:
-            await message.channel.send(f"❌ **Error inesperado:** {type(e).__name__} - {e}")
-
-    # Procesar otros posibles comandos (por si agregas más adelante)
+            print(f"❌ Error al aplicar moderación: {e}")
+    
+    # Solo procesar comandos si no es un mensaje de moderación o si es un comando
     await bot.process_commands(message)
+
+# =============================================
+# COMANDOS DE ADMINISTRACIÓN PARA MODERACIÓN
+# =============================================
+@bot.command(name="clear_spam")
+@commands.has_permissions(administrator=True)
+async def clear_spam(ctx):
+    """Limpia el contador de spam de todos los usuarios"""
+    global spam_counter
+    spam_counter.clear()
+    await ctx.send("✅ Contador de spam limpiado.")
 
 # =============================================
 # COMANDOS DE INVITACIONES
