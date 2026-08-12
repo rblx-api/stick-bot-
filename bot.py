@@ -531,8 +531,17 @@ async def on_ready():
     
     # Sincronizar slash commands
     try:
-        synced = await bot.tree.sync()
-        print(f'✅ Slash commands sincronizados: {len(synced)} comandos')
+        # Sincronizar globalmente
+        await bot.tree.sync()
+        print(f'✅ Slash commands sincronizados globalmente')
+        
+        # También sincronizar por servidor (más rápido para desarrollo)
+        for guild in bot.guilds:
+            try:
+                await bot.tree.sync(guild=guild)
+                print(f'✅ Slash commands sincronizados en {guild.name}')
+            except Exception as e:
+                print(f'❌ Error al sincronizar en {guild.name}: {e}')
     except Exception as e:
         print(f'❌ Error al sincronizar slash commands: {e}')
     
@@ -899,16 +908,14 @@ async def on_message(message):
 # SLASH COMMANDS (COMANDOS /)
 # =============================================
 
-# =============================================
-# /blacklist - Sistema de blacklist (Admin)
-# =============================================
-@bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist (Admin)")
+@bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
 @discord.app_commands.describe(
     accion="Acción a realizar (add o remove)",
     usuario="Usuario a agregar o quitar de la blacklist"
 )
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario: discord.Member):
+    """🚫 Agregar o quitar usuarios de la blacklist (Admin)"""
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     user_id = str(usuario.id)
     
@@ -933,10 +940,7 @@ async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario
     else:
         await interaction.response.send_message("❌ Acción inválida. Usa `add` o `remove`", ephemeral=True)
 
-# =============================================
-# /poll - Crear encuesta (Admin)
-# =============================================
-@bot.tree.command(name="poll", description="📊 Crear una encuesta (Admin)")
+@bot.tree.command(name="poll", description="📊 Crear una encuesta")
 @discord.app_commands.describe(
     pregunta="La pregunta de la encuesta",
     opcion1="Primera opción",
@@ -955,6 +959,7 @@ async def slash_poll(
     opcion4: str = None,
     opcion5: str = None
 ):
+    """📊 Crear una encuesta (Admin)"""
     opciones = [opcion1, opcion2]
     if opcion3:
         opciones.append(opcion3)
@@ -980,15 +985,13 @@ async def slash_poll(
     
     logger.info(f"📊 Encuesta creada por {interaction.user.name}: {pregunta}")
 
-# =============================================
-# /remind - Crear recordatorio
-# =============================================
 @bot.tree.command(name="remind", description="⏰ Crear un recordatorio")
 @discord.app_commands.describe(
     tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)",
     recordatorio="Lo que quieres recordar"
 )
 async def slash_remind(interaction: discord.Interaction, tiempo: str, recordatorio: str):
+    """⏰ Crear un recordatorio"""
     # Parsear tiempo
     match = re.match(r'(\d+)([smhd])', tiempo.lower())
     if not match:
@@ -1019,11 +1022,9 @@ async def slash_remind(interaction: discord.Interaction, tiempo: str, recordator
     await canal.send(f"⏰ {interaction.user.mention}, recordatorio: **{recordatorio}**")
     logger.info(f"⏰ Recordatorio de {interaction.user.name}: {recordatorio}")
 
-# =============================================
-# /serverstats - Estadísticas del servidor
-# =============================================
 @bot.tree.command(name="serverstats", description="📊 Ver estadísticas del servidor")
 async def slash_serverstats(interaction: discord.Interaction):
+    """📊 Ver estadísticas del servidor"""
     guild = interaction.guild
     
     total_members = guild.member_count
@@ -1047,12 +1048,10 @@ async def slash_serverstats(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed)
 
-# =============================================
-# /userinfo - Información de usuario
-# =============================================
 @bot.tree.command(name="userinfo", description="ℹ️ Ver información de un usuario")
 @discord.app_commands.describe(miembro="Usuario para ver su información (opcional)")
 async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Member = None):
+    """ℹ️ Ver información de un usuario"""
     if miembro is None:
         miembro = interaction.user
     
@@ -1070,25 +1069,21 @@ async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Memb
     
     await interaction.response.send_message(embed=embed)
 
-# =============================================
-# /set_autorole - Cambiar auto-role (Admin)
-# =============================================
-@bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente (Admin)")
+@bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente")
 @discord.app_commands.describe(rol="El rol que se asignará automáticamente")
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_set_autorole(interaction: discord.Interaction, rol: discord.Role):
+    """🎭 Cambiar el rol que se asigna automáticamente (Admin)"""
     global AUTO_ROLE_ID
     AUTO_ROLE_ID = rol.id
     await interaction.response.send_message(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
     logger.info(f"🎭 Auto-role cambiado a {rol.name} por {interaction.user.name}")
 
-# =============================================
-# /add_autorole - Asignar auto-role manualmente (Admin)
-# =============================================
-@bot.tree.command(name="add_autorole", description="🎭 Asignar el auto-role a un usuario manualmente (Admin)")
+@bot.tree.command(name="add_autorole", description="🎭 Asignar el auto-role a un usuario manualmente")
 @discord.app_commands.describe(miembro="Usuario que recibirá el rol")
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.Member):
+    """🎭 Asignar el auto-role a un usuario manualmente (Admin)"""
     rol = interaction.guild.get_role(AUTO_ROLE_ID)
     if rol is None:
         await interaction.response.send_message(f"❌ El rol con ID {AUTO_ROLE_ID} no existe", ephemeral=True)
@@ -1105,12 +1100,10 @@ async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.
     except Exception as e:
         await interaction.response.send_message(f"❌ Error al asignar el rol: {e}", ephemeral=True)
 
-# =============================================
-# /clear_spam - Limpiar contador de spam (Admin)
-# =============================================
-@bot.tree.command(name="clear_spam", description="🧹 Limpiar el contador de spam (Admin)")
+@bot.tree.command(name="clear_spam", description="🧹 Limpiar el contador de spam")
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_clear_spam(interaction: discord.Interaction):
+    """🧹 Limpiar el contador de spam (Admin)"""
     global spam_counter
     spam_counter.clear()
     await interaction.response.send_message("✅ Contador de spam limpiado.")
@@ -1122,7 +1115,6 @@ async def slash_clear_spam(interaction: discord.Interaction):
 @bot.command(name='panel')
 @commands.has_role(ROL_PERMITIDO_ID)
 async def panel_cmd(ctx):
-    # El panel ya se envía automáticamente, este comando es redundante pero se mantiene
     await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
 
 @bot.command(name='clear_spam')
