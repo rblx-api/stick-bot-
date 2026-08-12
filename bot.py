@@ -41,7 +41,7 @@ CANAL_BIENVENIDA = 1502668382640668853
 CANAL_DESPEDIDA = 1502668463435419839
 CATEGORIA_TICKETS_ID = 1536466416851488828
 CANAL_SUGERENCIAS_ID = 1536466416851488828
-CANAL_LOGS_ID = 1536466416851488828
+CANAL_LOGS_ID = 1517328591732477962  # ID actualizado para logs
 
 # Archivos de datos
 ARCHIVO_WARNS = 'warns.json'
@@ -524,6 +524,7 @@ async def on_ready():
     print(f'✅ Bot conectado como {bot.user}')
     print(f'📡 IA responderá en el canal: {CANAL_IA_ID}')
     print(f'🎭 Auto-role asignará el rol ID: {AUTO_ROLE_ID}')
+    print(f'📝 Canal de logs: {CANAL_LOGS_ID}')
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     
     await cargar_mutes()
@@ -531,11 +532,9 @@ async def on_ready():
     
     # Sincronizar slash commands
     try:
-        # Sincronizar globalmente
         await bot.tree.sync()
         print(f'✅ Slash commands sincronizados globalmente')
         
-        # También sincronizar por servidor (más rápido para desarrollo)
         for guild in bot.guilds:
             try:
                 await bot.tree.sync(guild=guild)
@@ -551,10 +550,16 @@ async def on_ready():
     else:
         print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
     
+    # Verificar canal de logs
+    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+    if canal_logs:
+        print(f'✅ Canal de logs encontrado: {canal_logs.name}')
+    else:
+        print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
+    
     # El panel se envía automáticamente al canal configurado
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
-        # Limpiar mensajes anteriores del bot en el canal
         try:
             async for msg in canal_panel.history(limit=100):
                 if msg.author == bot.user:
@@ -672,6 +677,58 @@ async def on_member_remove(member):
         )
         embed.set_image(url=member.display_avatar.url)
         await canal.send(embed=embed)
+
+# =============================================
+# EVENTO DE LOGS - MENSAJES ELIMINADOS
+# =============================================
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+    
+    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+    if not canal_logs:
+        return
+    
+    embed = discord.Embed(
+        title="🗑️ Mensaje Eliminado",
+        color=discord.Color.red(),
+        timestamp=datetime.now()
+    )
+    embed.add_field(name="Autor", value=message.author.mention, inline=True)
+    embed.add_field(name="Canal", value=message.channel.mention, inline=True)
+    embed.add_field(name="Contenido", value=message.content[:1000] if message.content else "Sin contenido", inline=False)
+    
+    # Agregar información de archivos adjuntos si hay
+    if message.attachments:
+        archivos = "\n".join([f"- {archivo.filename}" for archivo in message.attachments[:5]])
+        embed.add_field(name="Archivos adjuntos", value=archivos, inline=False)
+    
+    await canal_logs.send(embed=embed)
+
+# =============================================
+# EVENTO DE LOGS - MENSAJES EDITADOS
+# =============================================
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content:
+        return
+    
+    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+    if not canal_logs:
+        return
+    
+    embed = discord.Embed(
+        title="✏️ Mensaje Editado",
+        color=discord.Color.orange(),
+        timestamp=datetime.now()
+    )
+    embed.add_field(name="Autor", value=before.author.mention, inline=True)
+    embed.add_field(name="Canal", value=before.channel.mention, inline=True)
+    embed.add_field(name="Antes", value=before.content[:500] if before.content else "Vacío", inline=False)
+    embed.add_field(name="Después", value=after.content[:500] if after.content else "Vacío", inline=False)
+    
+    await canal_logs.send(embed=embed)
 
 # =============================================
 # EVENTO ON_MESSAGE: MODERACIÓN + IA + COMANDOS STICK
