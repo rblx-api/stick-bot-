@@ -31,12 +31,7 @@ if not TOKEN:
     raise ValueError("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
 
 GROQ_API_KEY = "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"
-
-# IDs de canales y roles
 CANAL_IA_ID = 1536862569497624606
-CANAL_SUGERENCIAS_ID = 1536466416851488828  # ID proporcionado
-CANAL_LOGS_ID = 1536466416851488828  # Mismo ID para logs (puedes cambiarlo después)
-CATEGORIA_TICKETS_ID = 1536466416851488828  # ID de la categoría de tickets
 
 ROL_PERMITIDO_ID = 1519744694416965782
 ROL_EXENTO_ID = 1519793995264294972
@@ -44,6 +39,9 @@ AUTO_ROLE_ID = 1508133051798917140
 CANAL_PANEL_ID = 1519029606684823732
 CANAL_BIENVENIDA = 1502668382640668853
 CANAL_DESPEDIDA = 1502668463435419839
+CATEGORIA_TICKETS_ID = 1536466416851488828
+CANAL_SUGERENCIAS_ID = 1536466416851488828
+CANAL_LOGS_ID = 1536466416851488828
 
 # Archivos de datos
 ARCHIVO_WARNS = 'warns.json'
@@ -71,7 +69,20 @@ RAID_JOIN_LIMIT = 5
 RAID_TIME_LIMIT = 60
 
 # =============================================
-# FUNCIONES DE MANEJO DE DATOS
+# FUNCIONES PARA MANEJO DE WARNS
+# =============================================
+def cargar_warns():
+    if os.path.exists(ARCHIVO_WARNS):
+        with open(ARCHIVO_WARNS, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def guardar_warns(warns):
+    with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
+        json.dump(warns, f, indent=4, ensure_ascii=False)
+
+# =============================================
+# FUNCIONES DE MANEJO DE ARCHIVOS JSON
 # =============================================
 def cargar_json(archivo, default=None):
     if default is None:
@@ -134,10 +145,10 @@ def contiene_palabras_prohibidas(texto):
     return False
 
 async def aplicar_warn(member, razon, canal=None):
-    warns = cargar_json(ARCHIVO_WARNS)
+    warns = cargar_warns()
     user_id = str(member.id)
     warns[user_id] = warns.get(user_id, 0) + 1
-    guardar_json(ARCHIVO_WARNS, warns)
+    guardar_warns(warns)
     
     if canal:
         await canal.send(f"⚠️ {member.mention} ha recibido un warn por: {razon}. Total: {warns[user_id]}")
@@ -148,7 +159,7 @@ async def aplicar_warn(member, razon, canal=None):
             if canal:
                 await canal.send(f"🚫 {member.mention} ha sido baneado por acumular 3 warnings.")
             del warns[user_id]
-            guardar_json(ARCHIVO_WARNS, warns)
+            guardar_warns(warns)
         except Exception as e:
             if canal:
                 await canal.send(f"❌ Error al banear a {member.mention}: {e}")
@@ -160,16 +171,16 @@ def es_exento(member):
             return True
     return False
 
+# =============================================
+# FUNCIONES PARA MUTES
+# =============================================
 async def get_mute_role(guild):
-    """Obtiene o crea el rol de mute"""
     mute_role = discord.utils.get(guild.roles, name="Muted")
     if not mute_role:
         mute_role = await guild.create_role(
             name="Muted", 
             permissions=discord.Permissions(0)
         )
-        
-        # Configurar permisos en todos los canales
         for channel in guild.channels:
             try:
                 await channel.set_permissions(
@@ -184,7 +195,6 @@ async def get_mute_role(guild):
     return mute_role
 
 async def cargar_mutes():
-    """Carga los mutes activos al iniciar el bot"""
     global mutes_activos
     mutes_data = cargar_json(ARCHIVO_MUTES)
     for guild_id, users in mutes_data.items():
@@ -192,7 +202,6 @@ async def cargar_mutes():
             mutes_activos[f"{guild_id}_{user_id}"] = end_time
 
 async def guardar_mute(guild_id, user_id, end_time):
-    """Guarda un mute en el archivo"""
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
@@ -203,7 +212,6 @@ async def guardar_mute(guild_id, user_id, end_time):
     guardar_json(ARCHIVO_MUTES, mutes)
 
 async def eliminar_mute(guild_id, user_id):
-    """Elimina un mute del archivo"""
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
@@ -264,22 +272,20 @@ async def consultar_groq(pregunta):
         return f"❌ Error inesperado. Por favor, intenta de nuevo más tarde."
 
 # =============================================
-# FUNCIÓN PARA OBTENER CATEGORÍA DE TICKETS
+# FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
 # =============================================
 async def obtener_categoria(guild):
-    """Obtiene la categoría de tickets usando el ID proporcionado"""
-    categoria = guild.get_channel(CATEGORIA_TICKETS_ID)
-    if categoria:
-        return categoria
-    
-    # Si no existe, crear una nueva
+    if CATEGORIA_TICKETS_ID:
+        categoria = guild.get_channel(CATEGORIA_TICKETS_ID)
+        if categoria:
+            return categoria
     categoria = discord.utils.get(guild.categories, name="TICKETS")
     if not categoria:
         categoria = await guild.create_category("TICKETS")
     return categoria
 
 # =============================================
-# MODAL PARA PREGUNTAR AL USUARIO (TICKETS)
+# MODALES PARA TICKETS
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -316,7 +322,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             guild = interaction.guild
             usuario = self.usuario
 
-            # Verificar si ya tiene ticket abierto
             for channel_id, data in tickets_activos.items():
                 if data['usuario_id'] == usuario.id and data['abierto']:
                     await interaction.followup.send("❌ Ya tienes un ticket abierto. Ciérralo antes de abrir otro.", ephemeral=True)
@@ -364,27 +369,11 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 view=view
             )
 
-            # Log en el canal de logs
-            canal_logs = bot.get_channel(CANAL_LOGS_ID)
-            if canal_logs:
-                log_embed = discord.Embed(
-                    title="🎫 Nuevo Ticket",
-                    description=f"**Usuario:** {usuario.mention}\n**Tipo:** {nombres.get(self.tipo_ticket, self.tipo_ticket)}\n**Canal:** {canal.mention}",
-                    color=discord.Color.green(),
-                    timestamp=datetime.now()
-                )
-                await canal_logs.send(embed=log_embed)
-
             await interaction.followup.send(f"✅ Ticket creado: {canal.mention}", ephemeral=True)
-            logger.info(f"Ticket creado por {usuario.name} en {canal.name}")
 
         except Exception as e:
             await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)}", ephemeral=True)
-            logger.error(f"Error al crear ticket: {e}")
 
-# =============================================
-# MODAL PARA NOTAS EN TICKETS
-# =============================================
 class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
     nota = ui.TextInput(
         label="Nota",
@@ -400,7 +389,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# SELECT DEL PANEL PRINCIPAL
+# VISTAS DE TICKETS
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -417,17 +406,11 @@ class TicketSelect(ui.Select):
         modal = PreguntaModal(valor, interaction.user)
         await interaction.response.send_modal(modal)
 
-# =============================================
-# VISTA DEL PANEL
-# =============================================
 class PanelView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(TicketSelect())
 
-# =============================================
-# BOTONES DE TICKET
-# =============================================
 class TicketButtons(ui.View):
     def __init__(self, usuario_id, canal_id):
         super().__init__(timeout=None)
@@ -451,10 +434,8 @@ class TicketButtons(ui.View):
             try:
                 await canal.delete()
                 await interaction.response.send_message("✅ Ticket cerrado y canal eliminado.", ephemeral=True)
-                logger.info(f"Ticket {self.canal_id} cerrado por {interaction.user.name}")
             except Exception as e:
                 await interaction.response.send_message(f"❌ Error al eliminar el canal: {e}", ephemeral=True)
-                logger.error(f"Error al cerrar ticket: {e}")
         else:
             await interaction.response.send_message("❌ Canal no encontrado.", ephemeral=True)
 
@@ -498,9 +479,6 @@ class TicketButtons(ui.View):
             return
         await interaction.response.send_modal(NotaModal())
 
-# =============================================
-# VISTA DESPUÉS DE CLAIM
-# =============================================
 class TicketButtonsAfterClaim(ui.View):
     def __init__(self, usuario_id, canal_id, quien_claimo):
         super().__init__(timeout=None)
@@ -543,46 +521,29 @@ class TicketButtonsAfterClaim(ui.View):
 # =============================================
 @bot.event
 async def on_ready():
-    logger.info(f'✅ Bot conectado como {bot.user}')
-    logger.info(f'📡 IA responderá en el canal: {CANAL_IA_ID}')
-    logger.info(f'🎭 Auto-role asignará el rol ID: {AUTO_ROLE_ID}')
-    logger.info(f'📊 Canal de sugerencias: {CANAL_SUGERENCIAS_ID}')
-    logger.info(f'📝 Canal de logs: {CANAL_LOGS_ID}')
-    logger.info(f'📁 Categoría de tickets: {CATEGORIA_TICKETS_ID}')
-    logger.info(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
+    print(f'✅ Bot conectado como {bot.user}')
+    print(f'📡 IA responderá en el canal: {CANAL_IA_ID}')
+    print(f'🎭 Auto-role asignará el rol ID: {AUTO_ROLE_ID}')
+    print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     
-    # Cargar mutes activos
     await cargar_mutes()
-    logger.info("✅ Mutes cargados correctamente")
+    print(f'✅ Mutes cargados correctamente')
     
-    # Verificar canales
-    canales_a_verificar = {
-        'IA': CANAL_IA_ID,
-        'Sugerencias': CANAL_SUGERENCIAS_ID,
-        'Logs': CANAL_LOGS_ID,
-        'Panel': CANAL_PANEL_ID,
-        'Bienvenida': CANAL_BIENVENIDA,
-        'Despedida': CANAL_DESPEDIDA
-    }
+    # Sincronizar slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f'✅ Slash commands sincronizados: {len(synced)} comandos')
+    except Exception as e:
+        print(f'❌ Error al sincronizar slash commands: {e}')
     
-    for nombre, id_canal in canales_a_verificar.items():
-        canal = bot.get_channel(id_canal)
-        if canal:
-            logger.info(f'✅ Canal de {nombre} encontrado: {canal.name}')
-        else:
-            logger.warning(f'⚠️ Canal de {nombre} NO encontrado. ID: {id_canal}')
+    canal_ia = bot.get_channel(CANAL_IA_ID)
+    if canal_ia:
+        print(f'✅ Canal de IA encontrado: {canal_ia.name}')
+    else:
+        print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
     
-    # Enviar panel
     canal = bot.get_channel(CANAL_PANEL_ID)
     if canal:
-        # Limpiar mensajes anteriores del panel
-        try:
-            async for msg in canal.history(limit=100):
-                if msg.author == bot.user:
-                    await msg.delete()
-        except:
-            pass
-        
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
@@ -616,9 +577,9 @@ async def on_ready():
         embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
         await canal.send(embed=embed, view=view)
-        logger.info(f"✅ Panel enviado a {canal.name}")
+        print(f"✅ Panel enviado a {canal.name}")
     else:
-        logger.error("❌ Canal de panel no encontrado. Verifica el ID.")
+        print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
 # EVENTO DE BIENVENIDA + AUTO-ROLE + ANTI-RAID
@@ -629,14 +590,13 @@ async def on_member_join(member):
     current_time = datetime.now().timestamp()
     raid_detection[member.guild.id].append(current_time)
     
-    # Limpiar entradas viejas
     raid_detection[member.guild.id] = [
         t for t in raid_detection[member.guild.id] 
         if current_time - t < RAID_TIME_LIMIT
     ]
     
     if len(raid_detection[member.guild.id]) > RAID_JOIN_LIMIT:
-        canal_logs = bot.get_channel(CANAL_LOGS_ID) if CANAL_LOGS_ID else None
+        canal_logs = bot.get_channel(CANAL_LOGS_ID)
         if canal_logs:
             embed = discord.Embed(
                 title="🚨 POSIBLE RAID DETECTADO",
@@ -645,20 +605,20 @@ async def on_member_join(member):
                 timestamp=datetime.now()
             )
             await canal_logs.send(embed=embed)
-        logger.warning(f"🚨 Posible raid detectado en {member.guild.name}: {len(raid_detection[member.guild.id])} miembros")
+        print(f"🚨 Posible raid detectado en {member.guild.name}: {len(raid_detection[member.guild.id])} miembros")
     
     # Auto-role
     try:
         rol = member.guild.get_role(AUTO_ROLE_ID)
         if rol:
             await member.add_roles(rol)
-            logger.info(f"✅ Rol asignado a {member.name} (ID: {member.id})")
+            print(f"✅ Rol asignado a {member.name} (ID: {member.id})")
         else:
-            logger.error(f"❌ Rol con ID {AUTO_ROLE_ID} no encontrado")
+            print(f"❌ Rol con ID {AUTO_ROLE_ID} no encontrado")
     except discord.Forbidden:
-        logger.error(f"❌ No tengo permisos para asignar roles en {member.guild.name}")
+        print(f"❌ No tengo permisos para asignar roles en {member.guild.name}")
     except discord.HTTPException as e:
-        logger.error(f"❌ Error al asignar rol: {e}")
+        print(f"❌ Error al asignar rol: {e}")
     
     # Mensaje de bienvenida
     canal = bot.get_channel(CANAL_BIENVENIDA)
@@ -679,7 +639,7 @@ async def on_member_join(member):
         if datetime.now().timestamp() < end_time:
             mute_role = await get_mute_role(member.guild)
             await member.add_roles(mute_role)
-            logger.info(f"🔇 Mute reactivado para {member.name}")
+            print(f"🔇 Mute reactivado para {member.name}")
 
 # =============================================
 # EVENTO DE DESPEDIDA
@@ -694,29 +654,15 @@ async def on_member_remove(member):
         )
         embed.set_image(url=member.display_avatar.url)
         await canal.send(embed=embed)
-    
-    # Log de salida
-    canal_logs = bot.get_channel(CANAL_LOGS_ID)
-    if canal_logs:
-        embed = discord.Embed(
-            title="👋 Miembro Salido",
-            description=f"**{member.name}** ha salido del servidor.",
-            color=discord.Color.orange(),
-            timestamp=datetime.now()
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="ID", value=member.id, inline=True)
-        embed.add_field(name="Fecha de creación", value=member.created_at.strftime("%d/%m/%Y"), inline=True)
-        await canal_logs.send(embed=embed)
 
 # =============================================
-# EVENTO ON_MESSAGE: MODERACIÓN + IA + COMANDOS
+# EVENTO ON_MESSAGE: MODERACIÓN + IA + COMANDOS STICK
 # =============================================
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    
+
     # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
@@ -789,18 +735,17 @@ async def on_message(message):
                     color=discord.Color.red()
                 )
                 await message.channel.send(embed=embed, delete_after=10)
-                logger.info(f"🚫 Mensaje eliminado de {message.author.name}: {razon}")
             except Exception as e:
-                logger.error(f"❌ Error al aplicar moderación: {e}")
+                print(f"❌ Error al aplicar moderación: {e}")
 
-    # Comandos stick
+    # Comandos stick (mantenemos los comandos con prefijo para compatibilidad)
     if message.content.lower().startswith('stick '):
         partes = message.content.split()
         if len(partes) >= 2:
             comando = partes[1].lower()
             
             if len(message.mentions) == 0:
-                await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute @usuario`")
+                await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
                 await bot.process_commands(message)
                 return
 
@@ -813,10 +758,10 @@ async def on_message(message):
                 return
 
             if comando == 'warn':
-                warns = cargar_json(ARCHIVO_WARNS)
+                warns = cargar_warns()
                 user_id = str(user.id)
                 warns[user_id] = warns.get(user_id, 0) + 1
-                guardar_json(ARCHIVO_WARNS, warns)
+                guardar_warns(warns)
 
                 await message.channel.send(f"⚠️ {user.mention} ha recibido un warn. Total: {warns[user_id]}")
 
@@ -837,12 +782,12 @@ async def on_message(message):
                         await user.ban(reason="3 warnings acumulados (ban automático)")
                         await message.channel.send(f"🚫 {user.mention} ha sido baneado por acumular 3 warnings.")
                         del warns[user_id]
-                        guardar_json(ARCHIVO_WARNS, warns)
+                        guardar_warns(warns)
                     except Exception as e:
                         await message.channel.send(f"❌ Error al banear: {e}")
 
             elif comando == 'unwarn':
-                warns = cargar_json(ARCHIVO_WARNS)
+                warns = cargar_warns()
                 user_id = str(user.id)
                 if user_id not in warns or warns[user_id] <= 0:
                     await message.channel.send(f"ℹ️ {user.mention} no tiene warnings para quitar.")
@@ -851,7 +796,7 @@ async def on_message(message):
                 warns[user_id] -= 1
                 if warns[user_id] == 0:
                     del warns[user_id]
-                guardar_json(ARCHIVO_WARNS, warns)
+                guardar_warns(warns)
 
                 await message.channel.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
 
@@ -862,446 +807,4 @@ async def on_message(message):
                     return
                 
                 tiempo = partes[2]
-                razon = ' '.join(partes[3:]) if len(partes) > 3 else "Sin razón"
-                
-                # Parsear tiempo
-                match = re.match(r'(\d+)([smhd])', tiempo.lower())
-                if not match:
-                    await message.channel.send("❌ Formato inválido. Usa: 5m, 1h, 1d")
-                    await bot.process_commands(message)
-                    return
-                
-                cantidad, unidad = match.groups()
-                cantidad = int(cantidad)
-                
-                segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
-                total_segundos = cantidad * segundos
-                
-                if total_segundos > 86400 * 7:  # Máximo 7 días
-                    await message.channel.send("❌ No puedes mutear por más de 7 días.")
-                    await bot.process_commands(message)
-                    return
-                
-                mute_role = await get_mute_role(message.guild)
-                await user.add_roles(mute_role)
-                
-                # Guardar mute
-                end_time = datetime.now().timestamp() + total_segundos
-                await guardar_mute(message.guild.id, user.id, end_time)
-                mutes_activos[f"{message.guild.id}_{user.id}"] = end_time
-                
-                await message.channel.send(f"🔇 {user.mention} muteado por {cantidad}{unidad}. Razón: {razon}")
-                logger.info(f"🔇 {user.name} muteado por {message.author.name} por {cantidad}{unidad}")
-                
-                # Desmutear automáticamente
-                async def desmutear():
-                    await asyncio.sleep(total_segundos)
-                    try:
-                        await user.remove_roles(mute_role)
-                        await eliminar_mute(message.guild.id, user.id)
-                        if f"{message.guild.id}_{user.id}" in mutes_activos:
-                            del mutes_activos[f"{message.guild.id}_{user.id}"]
-                        await message.channel.send(f"🔊 {user.mention} ha sido desmuteado automáticamente")
-                        logger.info(f"🔊 {user.name} desmuteado automáticamente")
-                    except Exception as e:
-                        logger.error(f"Error al desmutear: {e}")
-                
-                bot.loop.create_task(desmutear())
-
-            elif comando == 'unmute':
-                mute_role = await get_mute_role(message.guild)
-                if mute_role in user.roles:
-                    await user.remove_roles(mute_role)
-                    await eliminar_mute(message.guild.id, user.id)
-                    if f"{message.guild.id}_{user.id}" in mutes_activos:
-                        del mutes_activos[f"{message.guild.id}_{user.id}"]
-                    await message.channel.send(f"🔊 {user.mention} ha sido desmuteado")
-                    logger.info(f"🔊 {user.name} desmuteado por {message.author.name}")
-                else:
-                    await message.channel.send(f"ℹ️ {user.mention} no está muteado")
-
-            elif comando == 'ban':
-                bot_member = message.guild.me
-                if not bot_member.guild_permissions.ban_members:
-                    await message.channel.send("❌ El bot no tiene el permiso `Banear miembros`.")
-                    return
-
-                if user == message.author:
-                    await message.channel.send("❌ No puedes banearte a ti mismo.")
-                    return
-                if user == bot.user:
-                    await message.channel.send("❌ No puedes banear al bot.")
-                    return
-                if user == message.guild.owner:
-                    await message.channel.send("❌ No puedo banear al propietario del servidor.")
-                    return
-                if bot_member.top_role <= user.top_role:
-                    await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
-                    return
-
-                try:
-                    await user.ban(reason=f"Baneado por {message.author} (comando stick ban)")
-                    await message.channel.send(f"✅ {user.mention} ha sido baneado correctamente.")
-                    logger.info(f"🔨 {user.name} baneado por {message.author.name}")
-                except Exception as e:
-                    await message.channel.send(f"❌ Error al banear: {e}")
-
-    await bot.process_commands(message)
-
-# =============================================
-# COMANDO !panel
-# =============================================
-@bot.command(name='panel')
-@commands.has_role(ROL_PERMITIDO_ID)
-async def panel_cmd(ctx):
-    embed = discord.Embed(
-        title="═══════════════════════════════════════════════════════════",
-        description=(
-            "🔥🔥  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐀𝐇𝐎𝐑𝐀  🔥🔥\n"
-            "═══════════════════════════════════════════════════════════\n\n"
-            "   ⚔️  Compra de Scripts de Duelos\n"
-            "   💰  Paid Sources\n"
-            "   🤝  Alianzas y Coordinación\n"
-            "   📢  Reportar problemas\n\n"
-            "   ✅ Atención 24/7\n"
-            "   ✅ Soporte rápido y confiable\n"
-            "   ✅ Trato directo sin rodeos\n\n"
-            "   📩  ¡ABRE TU TICKET YA!\n"
-            "   👉  No te quedes fuera\n\n"
-            "═══════════════════════════════════════════════════════════\n"
-            "   🔥🔥  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐍𝐎𝐖  🔥🔥\n"
-            "═══════════════════════════════════════════════════════════\n\n"
-            "   ⚔️  Duel Scripts Purchase\n"
-            "   💰  Paid Sources\n"
-            "   🤝  Alliances & Coordination\n"
-            "   📢  Report issues\n\n"
-            "   ✅ 24/7 Support\n"
-            "   ✅ Fast and reliable service\n"
-            "   ✅ Direct and clear deals\n\n"
-            "   📩  OPEN YOUR TICKET NOW!\n"
-            "   👉  Don't miss out\n\n"
-            "═══════════════════════════════════════════════════════════"
-        ),
-        color=discord.Color.gold()
-    )
-    embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
-    view = PanelView()
-    await ctx.send(embed=embed, view=view)
-    await ctx.message.delete()
-
-# =============================================
-# COMANDO suggest
-# =============================================
-@bot.command(name='suggest')
-async def suggest(ctx, *, sugerencia):
-    """!suggest Tu sugerencia aquí"""
-    canal = bot.get_channel(CANAL_SUGERENCIAS_ID)
-    if not canal:
-        await ctx.send("❌ Canal de sugerencias no configurado.")
-        return
-    
-    embed = discord.Embed(
-        title="💡 Nueva Sugerencia",
-        description=sugerencia,
-        color=discord.Color.gold()
-    )
-    embed.set_author(name=ctx.author.name, icon_url=ctx.author.display_avatar.url)
-    embed.set_footer(text=f"ID: {ctx.author.id} | {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    
-    mensaje = await canal.send(embed=embed)
-    await mensaje.add_reaction("✅")
-    await mensaje.add_reaction("❌")
-    await mensaje.add_reaction("🤷")
-    
-    await ctx.send("✅ Sugerencia enviada al canal de sugerencias.")
-    logger.info(f"💡 Sugerencia de {ctx.author.name}: {sugerencia[:50]}...")
-
-# =============================================
-# COMANDOS DE ECONOMÍA
-# =============================================
-@bot.command(name='balance')
-async def balance(ctx, miembro: discord.Member = None):
-    """!balance @usuario - Ver monedas"""
-    if miembro is None:
-        miembro = ctx.author
-    
-    economia = cargar_json(ARCHIVO_ECONOMIA)
-    user_id = str(miembro.id)
-    monedas = economia.get(user_id, {}).get('monedas', 0)
-    
-    embed = discord.Embed(
-        title="💰 Balance",
-        description=f"{miembro.mention} tiene **{monedas}** monedas",
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed)
-
-@bot.command(name='give_coins')
-@commands.has_permissions(administrator=True)
-async def give_coins(ctx, miembro: discord.Member, cantidad: int):
-    """!give_coins @usuario cantidad - Dar monedas (admin only)"""
-    economia = cargar_json(ARCHIVO_ECONOMIA)
-    user_id = str(miembro.id)
-    
-    if user_id not in economia:
-        economia[user_id] = {'monedas': 0}
-    
-    economia[user_id]['monedas'] += cantidad
-    guardar_json(ARCHIVO_ECONOMIA, economia)
-    
-    await ctx.send(f"✅ {cantidad} monedas agregadas a {miembro.mention}")
-    logger.info(f"💰 {cantidad} monedas dadas a {miembro.name} por {ctx.author.name}")
-
-# =============================================
-# COMANDOS DE ESTADÍSTICAS
-# =============================================
-@bot.command(name='serverstats')
-async def server_stats(ctx):
-    """!serverstats - Estadísticas del servidor"""
-    guild = ctx.guild
-    
-    total_members = guild.member_count
-    humanos = sum(1 for m in guild.members if not m.bot)
-    bots = total_members - humanos
-    online = sum(1 for m in guild.members if m.status != discord.Status.offline)
-    
-    embed = discord.Embed(
-        title=f"📊 Estadísticas de {guild.name}",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-    embed.add_field(name="👥 Total", value=total_members, inline=True)
-    embed.add_field(name="👤 Humanos", value=humanos, inline=True)
-    embed.add_field(name="🤖 Bots", value=bots, inline=True)
-    embed.add_field(name="🟢 Online", value=online, inline=True)
-    embed.add_field(name="📅 Creado", value=guild.created_at.strftime("%d/%m/%Y"), inline=True)
-    embed.add_field(name="👑 Dueño", value=guild.owner.mention, inline=True)
-    embed.add_field(name="📊 Canales", value=len(guild.channels), inline=True)
-    embed.add_field(name="🎭 Roles", value=len(guild.roles), inline=True)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='userinfo')
-async def userinfo(ctx, miembro: discord.Member = None):
-    """!userinfo @usuario - Información del usuario"""
-    if miembro is None:
-        miembro = ctx.author
-    
-    embed = discord.Embed(
-        title=f"ℹ️ Información de {miembro.name}",
-        color=miembro.color if miembro.color != discord.Color.default() else discord.Color.blue()
-    )
-    embed.set_thumbnail(url=miembro.display_avatar.url)
-    embed.add_field(name="📛 Nombre", value=miembro.name, inline=True)
-    embed.add_field(name="🔢 ID", value=miembro.id, inline=True)
-    embed.add_field(name="📅 Creación", value=miembro.created_at.strftime("%d/%m/%Y %H:%M"), inline=True)
-    embed.add_field(name="📥 Ingreso", value=miembro.joined_at.strftime("%d/%m/%Y %H:%M") if miembro.joined_at else "N/A", inline=True)
-    embed.add_field(name="🎭 Roles", value=len(miembro.roles) - 1, inline=True)
-    embed.add_field(name="🟢 Estado", value=miembro.status, inline=True)
-    
-    await ctx.send(embed=embed)
-
-# =============================================
-# COMANDOS DE BLACKLIST
-# =============================================
-@bot.command(name='blacklist')
-@commands.has_permissions(administrator=True)
-async def blacklist_cmd(ctx, accion: str, usuario: discord.Member = None):
-    """!blacklist add/remove @usuario"""
-    if usuario is None:
-        await ctx.send("❌ Debes mencionar a un usuario.")
-        return
-    
-    blacklist = cargar_json(ARCHIVO_BLACKLIST)
-    user_id = str(usuario.id)
-    
-    if accion.lower() == 'add':
-        if user_id not in blacklist.get('usuarios', []):
-            if 'usuarios' not in blacklist:
-                blacklist['usuarios'] = []
-            blacklist['usuarios'].append(user_id)
-            guardar_json(ARCHIVO_BLACKLIST, blacklist)
-            await ctx.send(f"✅ {usuario.mention} agregado a la blacklist")
-            logger.info(f"🚫 {usuario.name} agregado a la blacklist por {ctx.author.name}")
-        else:
-            await ctx.send(f"ℹ️ {usuario.mention} ya está en la blacklist")
-    elif accion.lower() == 'remove':
-        if user_id in blacklist.get('usuarios', []):
-            blacklist['usuarios'].remove(user_id)
-            guardar_json(ARCHIVO_BLACKLIST, blacklist)
-            await ctx.send(f"✅ {usuario.mention} removido de la blacklist")
-            logger.info(f"✅ {usuario.name} removido de la blacklist por {ctx.author.name}")
-        else:
-            await ctx.send(f"ℹ️ {usuario.mention} no está en la blacklist")
-    else:
-        await ctx.send("❌ Acción inválida. Usa `add` o `remove`")
-
-# =============================================
-# COMANDOS DE AUTO-ROLE
-# =============================================
-@bot.command(name='set_autorole')
-@commands.has_permissions(administrator=True)
-async def set_autorole(ctx, rol_id: int = None):
-    """Cambia el rol que se asigna automáticamente (solo admins)"""
-    global AUTO_ROLE_ID
-    
-    if rol_id is None:
-        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
-        return
-    
-    rol = ctx.guild.get_role(rol_id)
-    if rol is None:
-        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
-        return
-    
-    AUTO_ROLE_ID = rol_id
-    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
-
-@bot.command(name='add_autorole')
-@commands.has_permissions(administrator=True)
-async def add_autorole(ctx, miembro: discord.Member = None):
-    """Asigna manualmente el auto-role a un miembro (solo admins)"""
-    if miembro is None:
-        miembro = ctx.author
-    
-    rol = ctx.guild.get_role(AUTO_ROLE_ID)
-    if rol is None:
-        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
-        return
-    
-    if rol in miembro.roles:
-        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
-        return
-    
-    try:
-        await miembro.add_roles(rol)
-        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
-    except Exception as e:
-        await ctx.send(f"❌ Error al asignar el rol: {e}")
-
-# =============================================
-# COMANDOS DE IA
-# =============================================
-@bot.command(name='test_ia')
-async def test_ia(ctx):
-    if ctx.channel.id != CANAL_IA_ID:
-        await ctx.send("❌ Este comando solo funciona en el canal de IA.")
-        return
-    
-    await ctx.send("🤖 Bot de IA funcionando correctamente. Etiquétame con @bot y haz tu pregunta.")
-
-@bot.command(name='set_ia_channel')
-@commands.has_permissions(administrator=True)
-async def set_ia_channel(ctx, canal_id: int = None):
-    global CANAL_IA_ID
-    
-    if canal_id is None:
-        await ctx.send(f"📡 Canal actual: <#{CANAL_IA_ID}>")
-        return
-    
-    canal = bot.get_channel(canal_id)
-    if canal is None:
-        await ctx.send(f"❌ No se encontró el canal con ID {canal_id}")
-        return
-    
-    CANAL_IA_ID = canal_id
-    await ctx.send(f"✅ Canal de IA actualizado a: {canal.mention}")
-
-@bot.command(name='test_apikey')
-@commands.has_permissions(administrator=True)
-async def test_apikey(ctx):
-    """Prueba si la API key de Groq funciona"""
-    await ctx.send("🔍 Probando API key de Groq...")
-    
-    resultado = await consultar_groq("Hola, ¿estás funcionando? Responde con un simple 'Sí'.")
-    
-    if "error" in resultado.lower() or "❌" in resultado:
-        await ctx.send(f"❌ La API key NO funciona: {resultado}")
-    else:
-        await ctx.send(f"✅ La API key funciona correctamente!\n\nRespuesta de prueba: {resultado}")
-
-# =============================================
-# COMANDO clear_spam
-# =============================================
-@bot.command(name='clear_spam')
-@commands.has_permissions(administrator=True)
-async def clear_spam(ctx):
-    global spam_counter
-    spam_counter.clear()
-    await ctx.send("✅ Contador de spam limpiado.")
-    logger.info(f"🧹 Contador de spam limpiado por {ctx.author.name}")
-
-# =============================================
-# COMANDO DE ENCUESTA
-# =============================================
-@bot.command(name='poll')
-async def poll(ctx, *, pregunta_y_opciones):
-    """!poll "Pregunta" "Opción1" "Opción2" "Opción3" """
-    # Extraer opciones entre comillas
-    opciones = re.findall(r'"([^"]*)"', pregunta_y_opciones)
-    
-    if len(opciones) < 2:
-        await ctx.send("❌ Necesitas al menos 2 opciones")
-        return
-    
-    pregunta = opciones[0]
-    opciones = opciones[1:]
-    
-    emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
-    
-    embed = discord.Embed(
-        title="📊 Encuesta",
-        description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text=f"Encuesta creada por {ctx.author.name} | {datetime.now().strftime('%d/%m/%Y')}")
-    
-    mensaje = await ctx.send(embed=embed)
-    
-    for i in range(min(len(opciones), 10)):
-        await mensaje.add_reaction(emojis[i])
-    
-    logger.info(f"📊 Encuesta creada por {ctx.author.name}: {pregunta}")
-
-# =============================================
-# COMANDO DE RECORDATORIO
-# =============================================
-@bot.command(name='remind')
-async def remind(ctx, tiempo: str, *, recordatorio):
-    """!remind 10s "Recordatorio" - 10s, 5m, 1h, 1d"""
-    # Parsear tiempo
-    match = re.match(r'(\d+)([smhd])', tiempo.lower())
-    if not match:
-        await ctx.send("❌ Formato inválido. Usa: 10s, 5m, 1h, 1d")
-        return
-    
-    cantidad, unidad = match.groups()
-    cantidad = int(cantidad)
-    
-    segundos = {
-        's': 1,
-        'm': 60,
-        'h': 3600,
-        'd': 86400
-    }.get(unidad, 0)
-    
-    total_segundos = cantidad * segundos
-    
-    if total_segundos > 86400 * 7:  # Máximo 7 días
-        await ctx.send("❌ No puedes programar recordatorios por más de 7 días.")
-        return
-    
-    await ctx.send(f"✅ Recordatorio programado para {cantidad}{unidad}: {recordatorio}")
-    
-    await asyncio.sleep(total_segundos)
-    await ctx.send(f"⏰ {ctx.author.mention}, recordatorio: **{recordatorio}**")
-    logger.info(f"⏰ Recordatorio de {ctx.author.name}: {recordatorio}")
-
-# =============================================
-# INICIAR EL BOT
-# =============================================
-if __name__ == "__main__":
-    try:
-        bot.run(TOKEN)
-    except Exception as e:
-        logger.error(f"❌ Error al iniciar el bot: {e}")
+                raz
