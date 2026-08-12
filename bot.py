@@ -542,8 +542,17 @@ async def on_ready():
     else:
         print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
     
-    canal = bot.get_channel(CANAL_PANEL_ID)
-    if canal:
+    # El panel se envía automáticamente al canal configurado
+    canal_panel = bot.get_channel(CANAL_PANEL_ID)
+    if canal_panel:
+        # Limpiar mensajes anteriores del bot en el canal
+        try:
+            async for msg in canal_panel.history(limit=100):
+                if msg.author == bot.user:
+                    await msg.delete()
+        except:
+            pass
+        
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
@@ -576,8 +585,8 @@ async def on_ready():
         )
         embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
-        await canal.send(embed=embed, view=view)
-        print(f"✅ Panel enviado a {canal.name}")
+        await canal_panel.send(embed=embed, view=view)
+        print(f"✅ Panel enviado a {canal_panel.name}")
     else:
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
@@ -738,7 +747,7 @@ async def on_message(message):
             except Exception as e:
                 print(f"❌ Error al aplicar moderación: {e}")
 
-    # Comandos stick (mantenemos los comandos con prefijo para compatibilidad)
+    # Comandos stick
     if message.content.lower().startswith('stick '):
         partes = message.content.split()
         if len(partes) >= 2:
@@ -807,4 +816,359 @@ async def on_message(message):
                     return
                 
                 tiempo = partes[2]
-                raz
+                razon = ' '.join(partes[3:]) if len(partes) > 3 else "Sin razón"
+                
+                match = re.match(r'(\d+)([smhd])', tiempo.lower())
+                if not match:
+                    await message.channel.send("❌ Formato inválido. Usa: 5m, 1h, 1d")
+                    await bot.process_commands(message)
+                    return
+                
+                cantidad, unidad = match.groups()
+                cantidad = int(cantidad)
+                
+                segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
+                total_segundos = cantidad * segundos
+                
+                if total_segundos > 86400 * 7:
+                    await message.channel.send("❌ No puedes mutear por más de 7 días.")
+                    await bot.process_commands(message)
+                    return
+                
+                mute_role = await get_mute_role(message.guild)
+                await user.add_roles(mute_role)
+                
+                end_time = datetime.now().timestamp() + total_segundos
+                await guardar_mute(message.guild.id, user.id, end_time)
+                mutes_activos[f"{message.guild.id}_{user.id}"] = end_time
+                
+                await message.channel.send(f"🔇 {user.mention} muteado por {cantidad}{unidad}. Razón: {razon}")
+                
+                async def desmutear():
+                    await asyncio.sleep(total_segundos)
+                    try:
+                        await user.remove_roles(mute_role)
+                        await eliminar_mute(message.guild.id, user.id)
+                        if f"{message.guild.id}_{user.id}" in mutes_activos:
+                            del mutes_activos[f"{message.guild.id}_{user.id}"]
+                        await message.channel.send(f"🔊 {user.mention} ha sido desmuteado automáticamente")
+                    except Exception as e:
+                        print(f"Error al desmutear: {e}")
+                
+                bot.loop.create_task(desmutear())
+
+            elif comando == 'unmute':
+                mute_role = await get_mute_role(message.guild)
+                if mute_role in user.roles:
+                    await user.remove_roles(mute_role)
+                    await eliminar_mute(message.guild.id, user.id)
+                    if f"{message.guild.id}_{user.id}" in mutes_activos:
+                        del mutes_activos[f"{message.guild.id}_{user.id}"]
+                    await message.channel.send(f"🔊 {user.mention} ha sido desmuteado")
+                else:
+                    await message.channel.send(f"ℹ️ {user.mention} no está muteado")
+
+            elif comando == 'ban':
+                bot_member = message.guild.me
+                if not bot_member.guild_permissions.ban_members:
+                    await message.channel.send("❌ El bot no tiene el permiso `Banear miembros`.")
+                    return
+
+                if user == message.author:
+                    await message.channel.send("❌ No puedes banearte a ti mismo.")
+                    return
+                if user == bot.user:
+                    await message.channel.send("❌ No puedes banear al bot.")
+                    return
+                if user == message.guild.owner:
+                    await message.channel.send("❌ No puedo banear al propietario del servidor.")
+                    return
+                if bot_member.top_role <= user.top_role:
+                    await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
+                    return
+
+                try:
+                    await user.ban(reason=f"Baneado por {message.author} (comando stick ban)")
+                    await message.channel.send(f"✅ {user.mention} ha sido baneado correctamente.")
+                except Exception as e:
+                    await message.channel.send(f"❌ Error al banear: {e}")
+
+    await bot.process_commands(message)
+
+# =============================================
+# SLASH COMMANDS (COMANDOS /)
+# =============================================
+
+# =============================================
+# /blacklist - Sistema de blacklist (Admin)
+# =============================================
+@bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist (Admin)")
+@discord.app_commands.describe(
+    accion="Acción a realizar (add o remove)",
+    usuario="Usuario a agregar o quitar de la blacklist"
+)
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario: discord.Member):
+    blacklist = cargar_json(ARCHIVO_BLACKLIST)
+    user_id = str(usuario.id)
+    
+    if accion.lower() == 'add':
+        if user_id not in blacklist.get('usuarios', []):
+            if 'usuarios' not in blacklist:
+                blacklist['usuarios'] = []
+            blacklist['usuarios'].append(user_id)
+            guardar_json(ARCHIVO_BLACKLIST, blacklist)
+            await interaction.response.send_message(f"✅ {usuario.mention} agregado a la blacklist")
+            logger.info(f"🚫 {usuario.name} agregado a la blacklist por {interaction.user.name}")
+        else:
+            await interaction.response.send_message(f"ℹ️ {usuario.mention} ya está en la blacklist", ephemeral=True)
+    elif accion.lower() == 'remove':
+        if user_id in blacklist.get('usuarios', []):
+            blacklist['usuarios'].remove(user_id)
+            guardar_json(ARCHIVO_BLACKLIST, blacklist)
+            await interaction.response.send_message(f"✅ {usuario.mention} removido de la blacklist")
+            logger.info(f"✅ {usuario.name} removido de la blacklist por {interaction.user.name}")
+        else:
+            await interaction.response.send_message(f"ℹ️ {usuario.mention} no está en la blacklist", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Acción inválida. Usa `add` o `remove`", ephemeral=True)
+
+# =============================================
+# /poll - Crear encuesta (Admin)
+# =============================================
+@bot.tree.command(name="poll", description="📊 Crear una encuesta (Admin)")
+@discord.app_commands.describe(
+    pregunta="La pregunta de la encuesta",
+    opcion1="Primera opción",
+    opcion2="Segunda opción",
+    opcion3="Tercera opción (opcional)",
+    opcion4="Cuarta opción (opcional)",
+    opcion5="Quinta opción (opcional)"
+)
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_poll(
+    interaction: discord.Interaction,
+    pregunta: str,
+    opcion1: str,
+    opcion2: str,
+    opcion3: str = None,
+    opcion4: str = None,
+    opcion5: str = None
+):
+    opciones = [opcion1, opcion2]
+    if opcion3:
+        opciones.append(opcion3)
+    if opcion4:
+        opciones.append(opcion4)
+    if opcion5:
+        opciones.append(opcion5)
+    
+    emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+    
+    embed = discord.Embed(
+        title="📊 Encuesta",
+        description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"Encuesta creada por {interaction.user.name} | {datetime.now().strftime('%d/%m/%Y')}")
+    
+    await interaction.response.send_message(embed=embed)
+    mensaje = await interaction.original_response()
+    
+    for i in range(min(len(opciones), 10)):
+        await mensaje.add_reaction(emojis[i])
+    
+    logger.info(f"📊 Encuesta creada por {interaction.user.name}: {pregunta}")
+
+# =============================================
+# /remind - Crear recordatorio
+# =============================================
+@bot.tree.command(name="remind", description="⏰ Crear un recordatorio")
+@discord.app_commands.describe(
+    tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)",
+    recordatorio="Lo que quieres recordar"
+)
+async def slash_remind(interaction: discord.Interaction, tiempo: str, recordatorio: str):
+    # Parsear tiempo
+    match = re.match(r'(\d+)([smhd])', tiempo.lower())
+    if not match:
+        await interaction.response.send_message("❌ Formato inválido. Usa: 10s, 5m, 1h, 1d", ephemeral=True)
+        return
+    
+    cantidad, unidad = match.groups()
+    cantidad = int(cantidad)
+    
+    segundos = {
+        's': 1,
+        'm': 60,
+        'h': 3600,
+        'd': 86400
+    }.get(unidad, 0)
+    
+    total_segundos = cantidad * segundos
+    
+    if total_segundos > 86400 * 7:
+        await interaction.response.send_message("❌ No puedes programar recordatorios por más de 7 días.", ephemeral=True)
+        return
+    
+    await interaction.response.send_message(f"✅ Recordatorio programado para {cantidad}{unidad}: {recordatorio}")
+    
+    await asyncio.sleep(total_segundos)
+    
+    canal = interaction.channel
+    await canal.send(f"⏰ {interaction.user.mention}, recordatorio: **{recordatorio}**")
+    logger.info(f"⏰ Recordatorio de {interaction.user.name}: {recordatorio}")
+
+# =============================================
+# /serverstats - Estadísticas del servidor
+# =============================================
+@bot.tree.command(name="serverstats", description="📊 Ver estadísticas del servidor")
+async def slash_serverstats(interaction: discord.Interaction):
+    guild = interaction.guild
+    
+    total_members = guild.member_count
+    humanos = sum(1 for m in guild.members if not m.bot)
+    bots = total_members - humanos
+    online = sum(1 for m in guild.members if m.status != discord.Status.offline)
+    
+    embed = discord.Embed(
+        title=f"📊 Estadísticas de {guild.name}",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+    embed.add_field(name="👥 Total", value=total_members, inline=True)
+    embed.add_field(name="👤 Humanos", value=humanos, inline=True)
+    embed.add_field(name="🤖 Bots", value=bots, inline=True)
+    embed.add_field(name="🟢 Online", value=online, inline=True)
+    embed.add_field(name="📅 Creado", value=guild.created_at.strftime("%d/%m/%Y"), inline=True)
+    embed.add_field(name="👑 Dueño", value=guild.owner.mention, inline=True)
+    embed.add_field(name="📊 Canales", value=len(guild.channels), inline=True)
+    embed.add_field(name="🎭 Roles", value=len(guild.roles), inline=True)
+    
+    await interaction.response.send_message(embed=embed)
+
+# =============================================
+# /userinfo - Información de usuario
+# =============================================
+@bot.tree.command(name="userinfo", description="ℹ️ Ver información de un usuario")
+@discord.app_commands.describe(miembro="Usuario para ver su información (opcional)")
+async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = interaction.user
+    
+    embed = discord.Embed(
+        title=f"ℹ️ Información de {miembro.name}",
+        color=miembro.color if miembro.color != discord.Color.default() else discord.Color.blue()
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    embed.add_field(name="📛 Nombre", value=miembro.name, inline=True)
+    embed.add_field(name="🔢 ID", value=miembro.id, inline=True)
+    embed.add_field(name="📅 Creación", value=miembro.created_at.strftime("%d/%m/%Y %H:%M"), inline=True)
+    embed.add_field(name="📥 Ingreso", value=miembro.joined_at.strftime("%d/%m/%Y %H:%M") if miembro.joined_at else "N/A", inline=True)
+    embed.add_field(name="🎭 Roles", value=len(miembro.roles) - 1, inline=True)
+    embed.add_field(name="🟢 Estado", value=miembro.status, inline=True)
+    
+    await interaction.response.send_message(embed=embed)
+
+# =============================================
+# /set_autorole - Cambiar auto-role (Admin)
+# =============================================
+@bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente (Admin)")
+@discord.app_commands.describe(rol="El rol que se asignará automáticamente")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_set_autorole(interaction: discord.Interaction, rol: discord.Role):
+    global AUTO_ROLE_ID
+    AUTO_ROLE_ID = rol.id
+    await interaction.response.send_message(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+    logger.info(f"🎭 Auto-role cambiado a {rol.name} por {interaction.user.name}")
+
+# =============================================
+# /add_autorole - Asignar auto-role manualmente (Admin)
+# =============================================
+@bot.tree.command(name="add_autorole", description="🎭 Asignar el auto-role a un usuario manualmente (Admin)")
+@discord.app_commands.describe(miembro="Usuario que recibirá el rol")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.Member):
+    rol = interaction.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await interaction.response.send_message(f"❌ El rol con ID {AUTO_ROLE_ID} no existe", ephemeral=True)
+        return
+    
+    if rol in miembro.roles:
+        await interaction.response.send_message(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}", ephemeral=True)
+        return
+    
+    try:
+        await miembro.add_roles(rol)
+        await interaction.response.send_message(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+        logger.info(f"🎭 {rol.name} asignado a {miembro.name} por {interaction.user.name}")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error al asignar el rol: {e}", ephemeral=True)
+
+# =============================================
+# /clear_spam - Limpiar contador de spam (Admin)
+# =============================================
+@bot.tree.command(name="clear_spam", description="🧹 Limpiar el contador de spam (Admin)")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_clear_spam(interaction: discord.Interaction):
+    global spam_counter
+    spam_counter.clear()
+    await interaction.response.send_message("✅ Contador de spam limpiado.")
+    logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
+
+# =============================================
+# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
+# =============================================
+@bot.command(name='panel')
+@commands.has_role(ROL_PERMITIDO_ID)
+async def panel_cmd(ctx):
+    # El panel ya se envía automáticamente, este comando es redundante pero se mantiene
+    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
+
+@bot.command(name='clear_spam')
+@commands.has_permissions(administrator=True)
+async def clear_spam_cmd(ctx):
+    global spam_counter
+    spam_counter.clear()
+    await ctx.send("✅ Contador de spam limpiado.")
+
+@bot.command(name='set_autorole')
+@commands.has_permissions(administrator=True)
+async def set_autorole_cmd(ctx, rol_id: int = None):
+    global AUTO_ROLE_ID
+    if rol_id is None:
+        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
+        return
+    rol = ctx.guild.get_role(rol_id)
+    if rol is None:
+        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
+        return
+    AUTO_ROLE_ID = rol_id
+    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+
+@bot.command(name='add_autorole')
+@commands.has_permissions(administrator=True)
+async def add_autorole_cmd(ctx, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = ctx.author
+    rol = ctx.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
+        return
+    if rol in miembro.roles:
+        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
+        return
+    try:
+        await miembro.add_roles(rol)
+        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error al asignar el rol: {e}")
+
+# =============================================
+# INICIAR EL BOT
+# =============================================
+if __name__ == "__main__":
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        print(f"❌ Error al iniciar el bot: {e}")
