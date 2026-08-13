@@ -33,9 +33,16 @@ if not TOKEN:
 GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
 
+# ROLES PERMITIDOS (Agregados los nuevos)
 ROL_PERMITIDO_ID = 1519744694416965782
+ROL_PERMITIDO_2_ID = 1498525987783053473  # Nuevo rol permitido
+ROL_PERMITIDO_3_ID = 1502898587691122688  # Nuevo rol permitido
 ROL_EXENTO_ID = 1519793995264294972
 AUTO_ROLE_ID = 1508133051798917140
+
+# Lista de todos los roles permitidos
+ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
+
 CANAL_PANEL_ID = 1519029606684823732
 CANAL_BIENVENIDA = 1502668382640668853
 CANAL_DESPEDIDA = 1502668463435419839
@@ -69,6 +76,16 @@ SPAM_LIMIT = 5
 SPAM_TIME = 10
 RAID_JOIN_LIMIT = 5
 RAID_TIME_LIMIT = 60
+
+# =============================================
+# FUNCIÓN PARA VERIFICAR ROLES PERMITIDOS
+# =============================================
+def tiene_rol_permitido(member):
+    """Verifica si el miembro tiene alguno de los roles permitidos"""
+    for rol_id in ROLES_PERMITIDOS:
+        if discord.utils.get(member.roles, id=rol_id):
+            return True
+    return False
 
 # =============================================
 # FUNCIONES PARA MANEJO DE WARNS
@@ -167,7 +184,7 @@ async def aplicar_warn(member, razon, canal=None):
                 await canal.send(f"❌ Error al banear a {member.mention}: {e}")
 
 def es_exento(member):
-    roles_exentos = [ROL_PERMITIDO_ID, ROL_EXENTO_ID]
+    roles_exentos = [ROL_EXENTO_ID]
     for rol_id in roles_exentos:
         if discord.utils.get(member.roles, id=rol_id):
             return True
@@ -336,9 +353,12 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 usuario: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
-            rol_autorizado = guild.get_role(ROL_PERMITIDO_ID)
-            if rol_autorizado:
-                overwrites[rol_autorizado] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            
+            # Agregar todos los roles permitidos al ticket
+            for rol_id in ROLES_PERMITIDOS:
+                rol = guild.get_role(rol_id)
+                if rol:
+                    overwrites[rol] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
             canal = await categoria.create_text_channel(nombre_canal, overwrites=overwrites)
 
@@ -365,8 +385,12 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
 
             view = TicketButtons(usuario.id, canal.id)
+            
+            # Mencionar todos los roles permitidos
+            mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
+            
             await canal.send(
-                f"{usuario.mention} {rol_autorizado.mention if rol_autorizado else ''}",
+                f"{usuario.mention} {mentions}",
                 embed=embed,
                 view=view
             )
@@ -421,8 +445,7 @@ class TicketButtons(ui.View):
 
     @ui.button(label="🔒 Cerrar Ticket", style=discord.ButtonStyle.danger, custom_id="cerrar_ticket")
     async def cerrar(self, interaction: discord.Interaction, button: ui.Button):
-        rol = discord.utils.get(interaction.user.roles, id=ROL_PERMITIDO_ID)
-        if not rol:
+        if not tiene_rol_permitido(interaction.user):
             await interaction.response.send_message("❌ No tienes permiso para cerrar tickets.", ephemeral=True)
             return
 
@@ -443,8 +466,7 @@ class TicketButtons(ui.View):
 
     @ui.button(label="📌 Claim Ticket", style=discord.ButtonStyle.primary, custom_id="claim_ticket")
     async def claim(self, interaction: discord.Interaction, button: ui.Button):
-        rol = discord.utils.get(interaction.user.roles, id=ROL_PERMITIDO_ID)
-        if not rol:
+        if not tiene_rol_permitido(interaction.user):
             await interaction.response.send_message("❌ No tienes permiso para reclamar tickets.", ephemeral=True)
             return
 
@@ -475,8 +497,7 @@ class TicketButtons(ui.View):
 
     @ui.button(label="📝 Agregar Nota", style=discord.ButtonStyle.secondary, custom_id="add_note")
     async def add_note(self, interaction: discord.Interaction, button: ui.Button):
-        rol = discord.utils.get(interaction.user.roles, id=ROL_PERMITIDO_ID)
-        if not rol:
+        if not tiene_rol_permitido(interaction.user):
             await interaction.response.send_message("❌ No tienes permiso para agregar notas.", ephemeral=True)
             return
         await interaction.response.send_modal(NotaModal())
@@ -490,8 +511,7 @@ class TicketButtonsAfterClaim(ui.View):
 
     @ui.button(label="🔒 Cerrar Ticket", style=discord.ButtonStyle.danger, custom_id="cerrar_ticket_after")
     async def cerrar(self, interaction: discord.Interaction, button: ui.Button):
-        rol = discord.utils.get(interaction.user.roles, id=ROL_PERMITIDO_ID)
-        if not rol:
+        if not tiene_rol_permitido(interaction.user):
             await interaction.response.send_message("❌ No tienes permiso para cerrar tickets.", ephemeral=True)
             return
 
@@ -512,11 +532,77 @@ class TicketButtonsAfterClaim(ui.View):
 
     @ui.button(label="📝 Agregar Nota", style=discord.ButtonStyle.secondary, custom_id="add_note_after")
     async def add_note(self, interaction: discord.Interaction, button: ui.Button):
-        rol = discord.utils.get(interaction.user.roles, id=ROL_PERMITIDO_ID)
-        if not rol:
+        if not tiene_rol_permitido(interaction.user):
             await interaction.response.send_message("❌ No tienes permiso para agregar notas.", ephemeral=True)
             return
         await interaction.response.send_modal(NotaModal())
+
+# =============================================
+# FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
+# =============================================
+async def ban_all_members(guild, author, razon="Baneo masivo"):
+    """Función para banear a todos los miembros del servidor"""
+    
+    # Obtener todos los miembros (excepto el bot, dueño, admin y el que ejecuta)
+    miembros_a_bannear = []
+    miembros_omitidos = []
+    
+    for member in guild.members:
+        # No banear al bot
+        if member.id == bot.user.id:
+            miembros_omitidos.append(f"🤖 {member.name} (Bot)")
+            continue
+        
+        # No banear al dueño del servidor
+        if member.id == guild.owner_id:
+            miembros_omitidos.append(f"👑 {member.name} (Dueño)")
+            continue
+        
+        # No banear al usuario que ejecuta el comando
+        if member.id == author.id:
+            miembros_omitidos.append(f"👤 {member.name} (Tú)")
+            continue
+        
+        # No banear a administradores (por seguridad)
+        if member.guild_permissions.administrator:
+            miembros_omitidos.append(f"🛡️ {member.name} (Admin)")
+            continue
+        
+        # No banear a usuarios con roles permitidos
+        if tiene_rol_permitido(member):
+            miembros_omitidos.append(f"🔰 {member.name} (Staff)")
+            continue
+        
+        miembros_a_bannear.append(member)
+    
+    # Si no hay miembros para banear
+    if not miembros_a_bannear:
+        return {
+            'baneados': 0,
+            'errores': 0,
+            'omitidos': miembros_omitidos,
+            'errores_lista': []
+        }
+    
+    # Ejecutar el baneo
+    baneados = 0
+    errores = 0
+    errores_lista = []
+    
+    for member in miembros_a_bannear:
+        try:
+            await member.ban(reason=f"Baneo masivo por {author.name}: {razon}")
+            baneados += 1
+        except Exception as e:
+            errores += 1
+            errores_lista.append(f"{member.name}: {str(e)[:50]}")
+    
+    return {
+        'baneados': baneados,
+        'errores': errores,
+        'omitidos': miembros_omitidos,
+        'errores_lista': errores_lista
+    }
 
 # =============================================
 # EVENTO ON_READY
@@ -528,6 +614,7 @@ async def on_ready():
     print(f'🎭 Auto-role asignará el rol ID: {AUTO_ROLE_ID}')
     print(f'📝 Canal de logs: {CANAL_LOGS_ID}')
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
+    print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -798,6 +885,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -807,6 +895,7 @@ async def on_message(message):
             pass
         return
 
+    # Sistema de IA
     if message.channel.id == CANAL_IA_ID:
         if bot.user.mentioned_in(message):
             contenido = message.content
@@ -832,6 +921,7 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
+    # Sistema de moderación automática
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -870,23 +960,102 @@ async def on_message(message):
             except Exception as e:
                 print(f"❌ Error al aplicar moderación: {e}")
 
+    # =============================================
+    # COMANDOS STICK (warn, unwarn, ban, mute, unmute, ban all)
+    # =============================================
     if message.content.lower().startswith('stick '):
         partes = message.content.split()
         if len(partes) >= 2:
             comando = partes[1].lower()
             
+            # Verificar si tiene alguno de los roles permitidos
+            if not tiene_rol_permitido(message.author):
+                await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
+                await bot.process_commands(message)
+                return
+
+            # =============================================
+            # COMANDO: stick ban all
+            # =============================================
+            if comando == 'ban' and len(partes) >= 3 and partes[2].lower() == 'all':
+                # Verificar permisos del bot
+                if not message.guild.me.guild_permissions.ban_members:
+                    await message.channel.send("❌ El bot no tiene permisos para banear miembros.")
+                    await bot.process_commands(message)
+                    return
+                
+                # Pedir confirmación
+                confirmacion_msg = await message.channel.send(
+                    f"⚠️ **¿ESTÁS SEGURO?**\n"
+                    f"Esto baneará a **TODOS** los miembros del servidor.\n"
+                    f"Esta acción es **IRREVERSIBLE**.\n\n"
+                    f"Para confirmar, escribe `stick confirmar ban all` en los próximos 30 segundos."
+                )
+                
+                # Esperar confirmación
+                def check(m):
+                    return m.author == message.author and m.content.lower() == 'stick confirmar ban all' and m.channel == message.channel
+                
+                try:
+                    await bot.wait_for('message', timeout=30.0, check=check)
+                except asyncio.TimeoutError:
+                    await message.channel.send("❌ Tiempo de confirmación agotado. Baneo cancelado.")
+                    await bot.process_commands(message)
+                    return
+                
+                # Ejecutar baneo masivo
+                resultado = await ban_all_members(message.guild, message.author, "Baneo masivo por comando stick")
+                
+                # Enviar resultado
+                embed = discord.Embed(
+                    title="✅ BANEO MASIVO COMPLETADO",
+                    description=f"**Baneados:** {resultado['baneados']}\n"
+                                f"**Errores:** {resultado['errores']}\n"
+                                f"**Omitidos:** {len(resultado['omitidos'])}",
+                    color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
+                )
+                
+                if resultado['omitidos']:
+                    omitidos_texto = "\n".join(resultado['omitidos'][:10])
+                    if len(resultado['omitidos']) > 10:
+                        omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
+                    embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
+                
+                if resultado['errores_lista']:
+                    errores_texto = "\n".join(resultado['errores_lista'][:10])
+                    if len(resultado['errores_lista']) > 10:
+                        errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
+                    embed.add_field(name="Errores", value=errores_texto, inline=False)
+                
+                await message.channel.send(embed=embed)
+                
+                # Log en canal de logs
+                canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                if canal_logs:
+                    log_embed = discord.Embed(
+                        title="🔨 BANEO MASIVO POR STICK",
+                        description=f"**Usuario:** {message.author.mention}\n"
+                                    f"**Baneados:** {resultado['baneados']}\n"
+                                    f"**Errores:** {resultado['errores']}",
+                        color=discord.Color.red(),
+                        timestamp=datetime.now()
+                    )
+                    await canal_logs.send(embed=log_embed)
+                
+                logger.info(f"🔨 Baneo masivo por stick ejecutado por {message.author.name}: {resultado['baneados']} baneados")
+                
+                await bot.process_commands(message)
+                return
+
+            # =============================================
+            # COMANDOS STICK NORMALES (warn, unwarn, ban, mute, unmute)
+            # =============================================
             if len(message.mentions) == 0:
                 await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
                 await bot.process_commands(message)
                 return
 
             user = message.mentions[0]
-
-            rol = discord.utils.get(message.author.roles, id=ROL_PERMITIDO_ID)
-            if not rol:
-                await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
-                await bot.process_commands(message)
-                return
 
             if comando == 'warn':
                 warns = cargar_warns()
@@ -1022,7 +1191,7 @@ async def on_message(message):
 # =============================================
 
 # =============================================
-# /ban_all - BANEAR A TODOS (CON SEGURIDAD)
+# /ban_all - BANEAR A TODOS
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1052,141 +1221,56 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
         )
         return
     
-    # Obtener todos los miembros (excepto el bot, dueño, admin y el que ejecuta)
-    miembros_a_bannear = []
-    miembros_omitidos = []
-    
-    for member in interaction.guild.members:
-        # No banear al bot
-        if member.id == interaction.client.user.id:
-            miembros_omitidos.append(f"🤖 {member.name} (Bot)")
-            continue
-        
-        # No banear al dueño del servidor
-        if member.id == interaction.guild.owner_id:
-            miembros_omitidos.append(f"👑 {member.name} (Dueño)")
-            continue
-        
-        # No banear al usuario que ejecuta el comando
-        if member.id == interaction.user.id:
-            miembros_omitidos.append(f"👤 {member.name} (Tú)")
-            continue
-        
-        # No banear a administradores (por seguridad)
-        if member.guild_permissions.administrator:
-            miembros_omitidos.append(f"🛡️ {member.name} (Admin)")
-            continue
-        
-        miembros_a_bannear.append(member)
+    # Ejecutar baneo masivo
+    resultado = await ban_all_members(interaction.guild, interaction.user, razon)
     
     # Verificar si hay miembros para banear
-    if not miembros_a_bannear:
+    if resultado['baneados'] == 0 and resultado['errores'] == 0:
         await interaction.response.send_message(
             f"ℹ️ No hay miembros disponibles para banear.\n"
-            f"Miembros omitidos: {len(miembros_omitidos)}",
+            f"Miembros omitidos: {len(resultado['omitidos'])}",
             ephemeral=True
         )
         return
     
-    # Enviar mensaje de advertencia
+    # Enviar resultado
     embed = discord.Embed(
-        title="⚠️ ⚠️ ⚠️ BANEO MASIVO ⚠️ ⚠️ ⚠️",
-        description=f"**Se van a banear {len(miembros_a_bannear)} miembros**\n\n"
-                    f"Esta acción es **IRREVERSIBLE**.\n"
-                    f"Los miembros baneados no podrán volver a unirse.\n\n"
-                    f"**Razón:** {razon}\n\n"
-                    f"⏳ El proceso puede tomar varios minutos...",
-        color=discord.Color.red()
+        title="✅ BANEO MASIVO COMPLETADO",
+        description=f"**Baneados:** {resultado['baneados']}\n"
+                    f"**Errores:** {resultado['errores']}\n"
+                    f"**Omitidos:** {len(resultado['omitidos'])}\n"
+                    f"**Razón:** {razon}",
+        color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
     )
     
-    omitidos_texto = "\n".join(miembros_omitidos[:10])
-    if len(miembros_omitidos) > 10:
-        omitidos_texto += f"\n... y {len(miembros_omitidos) - 10} más"
+    if resultado['omitidos']:
+        omitidos_texto = "\n".join(resultado['omitidos'][:10])
+        if len(resultado['omitidos']) > 10:
+            omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
+        embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
     
-    embed.add_field(
-        name="Miembros omitidos",
-        value=omitidos_texto if omitidos_texto else "Ninguno",
-        inline=False
-    )
+    if resultado['errores_lista']:
+        errores_texto = "\n".join(resultado['errores_lista'][:10])
+        if len(resultado['errores_lista']) > 10:
+            errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
+        embed.add_field(name="Errores", value=errores_texto, inline=False)
     
     await interaction.response.send_message(embed=embed)
     
-    # Enviar mensaje de inicio al canal de logs
+    # Log en canal de logs
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         log_embed = discord.Embed(
-            title="🔨 INICIANDO BANEO MASIVO",
+            title="🔨 BANEO MASIVO POR SLASH",
             description=f"**Usuario:** {interaction.user.mention}\n"
-                        f"**Miembros a banear:** {len(miembros_a_bannear)}\n"
-                        f"**Razón:** {razon}",
+                        f"**Baneados:** {resultado['baneados']}\n"
+                        f"**Errores:** {resultado['errores']}",
             color=discord.Color.red(),
             timestamp=datetime.now()
         )
         await canal_logs.send(embed=log_embed)
     
-    # Ejecutar el baneo
-    baneados = 0
-    errores = 0
-    errores_lista = []
-    
-    # Crear barra de progreso
-    mensaje_progreso = await interaction.followup.send(
-        f"🔄 Baneando miembros... 0/{len(miembros_a_bannear)}"
-    )
-    
-    for i, member in enumerate(miembros_a_bannear):
-        try:
-            await member.ban(reason=f"Baneo masivo por {interaction.user.name}: {razon}")
-            baneados += 1
-        except Exception as e:
-            errores += 1
-            errores_lista.append(f"{member.name}: {str(e)[:50]}")
-        
-        # Actualizar progreso cada 10 miembros
-        if i % 10 == 0 or i == len(miembros_a_bannear) - 1:
-            try:
-                await mensaje_progreso.edit(
-                    content=f"🔄 Baneando miembros... {i+1}/{len(miembros_a_bannear)} "
-                            f"(✅ {baneados} baneados | ❌ {errores} errores)"
-                )
-            except:
-                pass
-    
-    # Mensaje final
-    embed_final = discord.Embed(
-        title="✅ BANEO MASIVO COMPLETADO",
-        description=f"**Total de miembros baneados:** {baneados}\n"
-                    f"**Errores:** {errores}\n"
-                    f"**Miembros omitidos:** {len(miembros_omitidos)}\n"
-                    f"**Razón:** {razon}",
-        color=discord.Color.green() if errores == 0 else discord.Color.orange()
-    )
-    
-    if errores_lista:
-        errores_texto = "\n".join(errores_lista[:10])
-        if len(errores_lista) > 10:
-            errores_texto += f"\n... y {len(errores_lista) - 10} más"
-        embed_final.add_field(
-            name="Errores",
-            value=errores_texto,
-            inline=False
-        )
-    
-    await mensaje_progreso.edit(content=None, embed=embed_final)
-    
-    # Enviar log final al canal de logs
-    if canal_logs:
-        log_final = discord.Embed(
-            title="✅ BANEO MASIVO FINALIZADO",
-            description=f"**Usuario:** {interaction.user.mention}\n"
-                        f"**Baneados:** {baneados}\n"
-                        f"**Errores:** {errores}",
-            color=discord.Color.green(),
-            timestamp=datetime.now()
-        )
-        await canal_logs.send(embed=log_final)
-    
-    logger.info(f"🔨 Baneo masivo ejecutado por {interaction.user.name}: {baneados} baneados, {errores} errores")
+    logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
 
 # =============================================
 # OTROS SLASH COMMANDS
@@ -1388,8 +1472,10 @@ async def slash_clear_spam(interaction: discord.Interaction):
 # COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
 # =============================================
 @bot.command(name='panel')
-@commands.has_role(ROL_PERMITIDO_ID)
 async def panel_cmd(ctx):
+    if not tiene_rol_permitido(ctx.author):
+        await ctx.send("❌ No tienes permiso para usar este comando.")
+        return
     await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
 
 @bot.command(name='clear_spam')
