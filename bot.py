@@ -304,17 +304,25 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS (SOLO UNA OPCIÓN: WEB)
+# MODALES PARA TICKETS (ACTUALIZADO CON DOS OPCIONES)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
         super().__init__()
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
-        # Solo existe el tipo 'web'
-        label = "🌐 ¿Qué tipo de web quieres?"
-        placeholder = "Describe el tipo de web, funcionalidades, diseño, etc."
-        
+
+        # Configurar el texto del modal según el tipo
+        if tipo_ticket == "web":
+            label = "🌐 ¿Qué tipo de web quieres?"
+            placeholder = "Describe el tipo de web, funcionalidades, diseño, etc."
+        elif tipo_ticket == "script":
+            label = "💻 ¿De qué trata el script que quieres hacer?"
+            placeholder = "Describe el propósito, lenguaje, funcionalidades, etc."
+        else:
+            label = "Consulta"
+            placeholder = "Describe tu consulta"
+
         self.respuesta_input = ui.TextInput(
             label=label,
             style=discord.TextStyle.paragraph,
@@ -361,8 +369,10 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 'canal': canal
             }
 
+            # Diccionario de nombres para el embed
             nombres = {
-                "web": "🌐 Quiero hacer mi web"
+                "web": "🌐 Quiero hacer mi web",
+                "script": "💻 Quiero hacer mi propio script"
             }
 
             embed = discord.Embed(
@@ -403,7 +413,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (SOLO UNA OPCIÓN)
+# VISTAS DE TICKETS (ACTUALIZADO CON DOS OPCIONES)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -413,6 +423,12 @@ class TicketSelect(ui.Select):
                 value="web",
                 description="Solicita la creación de tu página web",
                 emoji="🌐"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer mi propio script",
+                value="script",
+                description="Solicita la creación de un script a medida",
+                emoji="💻"
             ),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
@@ -595,7 +611,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# EVENTO ON_READY
+# EVENTO ON_READY (PANEL ACTUALIZADO)
 # =============================================
 @bot.event
 async def on_ready():
@@ -647,26 +663,36 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🌐  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓 𝐏𝐀𝐑𝐀 𝐓𝐔 𝐖𝐄𝐁  🌐\n"
+                "🌐💻  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐓𝐔  𝐖𝐄𝐁  𝐎  𝐒𝐂𝐑𝐈𝐏𝐓  🌐💻\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  ¿Quieres crear una página web?\n"
                 "   ✅  Diseño profesional y personalizado\n"
                 "   ✅  Desarrollo a medida (HTML, CSS, JS, etc.)\n"
                 "   ✅  Asesoría y soporte durante todo el proceso\n\n"
-                "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n\n"
+                "   💻  ¿Quieres hacer tu propio script?\n"
+                "   ✅  Scripts a medida para tus necesidades\n"
+                "   ✅  Lenguajes: Python, JavaScript, Lua, etc.\n"
+                "   ✅  Soporte y optimización incluidos\n\n"
+                "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n"
+                "   👉  Elige una opción en el menú desplegable\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🌐  𝐎𝐏𝐄𝐍 𝐀 𝐓𝐈𝐂𝐊𝐄𝐓 𝐅𝐎𝐑 𝐘𝐎𝐔𝐑 𝐖𝐄𝐁  🌐\n"
+                "   🌐💻  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐘𝐎𝐔𝐑  𝐖𝐄𝐁  𝐎𝐑  𝐒𝐂𝐑𝐈𝐏𝐓  🌐💻\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  Do you want to create a website?\n"
                 "   ✅  Professional and custom design\n"
                 "   ✅  Custom development (HTML, CSS, JS, etc.)\n"
                 "   ✅  Advice and support throughout the process\n\n"
-                "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n\n"
+                "   💻  Do you want to make your own script?\n"
+                "   ✅  Custom scripts for your needs\n"
+                "   ✅  Languages: Python, JavaScript, Lua, etc.\n"
+                "   ✅  Support and optimization included\n\n"
+                "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n"
+                "   👉  Choose an option from the dropdown menu\n\n"
                 "═══════════════════════════════════════════════════════════"
             ),
             color=discord.Color.gold()
         )
-        embed.set_footer(text="Selecciona la opción en el menú desplegable para abrir tu ticket.")
+        embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
         await canal_panel.send(embed=embed, view=view)
         print(f"✅ Panel enviado a {canal_panel.name}")
@@ -1507,4 +1533,3 @@ if __name__ == "__main__":
         bot.run(TOKEN)
     except Exception as e:
         print(f"❌ Error al iniciar el bot: {e}")
-    
