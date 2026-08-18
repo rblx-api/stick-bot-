@@ -304,7 +304,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS (ACTUALIZADO CON TRES OPCIONES)
+# MODALES PARA TICKETS (ACTUALIZADO CON CUATRO OPCIONES)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -322,6 +322,9 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         elif tipo_ticket == "bot":
             label = "🤖 ¿De qué quieres que sea el bot?"
             placeholder = "Describe la funcionalidad, plataforma, propósito del bot, etc."
+        elif tipo_ticket == "alianza":
+            label = "🤝 ¿Cuántos miembros tienes?"
+            placeholder = "Indica el número de miembros de tu servidor y otros detalles"
         else:
             label = "Consulta"
             placeholder = "Describe tu consulta"
@@ -376,7 +379,8 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             nombres = {
                 "web": "🌐 Quiero hacer mi web",
                 "script": "💻 Quiero hacer mi propio script",
-                "bot": "🤖 Quiero hacer mi bot"
+                "bot": "🤖 Quiero hacer mi bot",
+                "alianza": "🤝 Quiero hacer alianza"
             }
 
             embed = discord.Embed(
@@ -417,7 +421,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (ACTUALIZADO CON TRES OPCIONES)
+# VISTAS DE TICKETS (ACTUALIZADO CON CUATRO OPCIONES)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -439,6 +443,12 @@ class TicketSelect(ui.Select):
                 value="bot",
                 description="Solicita la creación de un bot personalizado",
                 emoji="🤖"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer alianza",
+                value="alianza",
+                description="Solicita una alianza con tu servidor",
+                emoji="🤝"
             ),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
@@ -673,7 +683,7 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🌐💻🤖  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓  𝐎  𝐁𝐎𝐓  🌐💻🤖\n"
+                "🌐💻🤖🤝  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓  𝐎  𝐀𝐋𝐈𝐀𝐍𝐙𝐀  🌐💻🤖🤝\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  ¿Quieres crear una página web?\n"
                 "   ✅  Diseño profesional y personalizado\n"
@@ -687,10 +697,14 @@ async def on_ready():
                 "   ✅  Bots personalizados para Discord, Telegram, etc.\n"
                 "   ✅  Funcionalidades a tu medida\n"
                 "   ✅  Soporte y mantenimiento continuo\n\n"
+                "   🤝  ¿Quieres hacer una alianza?\n"
+                "   ✅  Alianzas estratégicas con tu servidor\n"
+                "   ✅  Coordinación y colaboración mutua\n"
+                "   ✅  Beneficios para ambas comunidades\n\n"
                 "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n"
                 "   👉  Elige una opción en el menú desplegable\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🌐💻🤖  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓  𝐎𝐑  𝐁𝐎𝐓  🌐💻🤖\n"
+                "   🌐💻🤖🤝  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓  𝐎𝐑  𝐀𝐋𝐋𝐈𝐀𝐍𝐂𝐄  🌐💻🤖🤝\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  Do you want to create a website?\n"
                 "   ✅  Professional and custom design\n"
@@ -704,6 +718,10 @@ async def on_ready():
                 "   ✅  Custom bots for Discord, Telegram, etc.\n"
                 "   ✅  Tailored functionalities\n"
                 "   ✅  Ongoing support and maintenance\n\n"
+                "   🤝  Do you want to make an alliance?\n"
+                "   ✅  Strategic alliances with your server\n"
+                "   ✅  Coordination and mutual collaboration\n"
+                "   ✅  Benefits for both communities\n\n"
                 "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n"
                 "   👉  Choose an option from the dropdown menu\n\n"
                 "═══════════════════════════════════════════════════════════"
