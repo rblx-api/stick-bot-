@@ -304,25 +304,16 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS
+# MODALES PARA TICKETS (SOLO UNA OPCIÓN: WEB)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
         super().__init__()
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
-        if tipo_ticket in ["duels", "paid_sources"]:
-            label = "💰 Monto a pagar"
-            placeholder = "Describe el monto, método de pago, etc."
-        elif tipo_ticket == "partner":
-            label = "👥 Miembros"
-            placeholder = "¿Cuántos miembros tiene tu servidor?"
-        elif tipo_ticket == "report":
-            label = "📢 Problema"
-            placeholder = "Describe el problema que quieres reportar"
-        else:
-            label = "Consulta"
-            placeholder = "Describe tu consulta"
+        # Solo existe el tipo 'web'
+        label = "🌐 ¿Qué tipo de web quieres?"
+        placeholder = "Describe el tipo de web, funcionalidades, diseño, etc."
         
         self.respuesta_input = ui.TextInput(
             label=label,
@@ -371,10 +362,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             }
 
             nombres = {
-                "duels": "Duelos ⚔️",
-                "paid_sources": "Paid Sources 💰",
-                "partner": "Partner / Alianzas 🤝",
-                "report": "Reportar 📢"
+                "web": "🌐 Quiero hacer mi web"
             }
 
             embed = discord.Embed(
@@ -415,15 +403,17 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS
+# VISTAS DE TICKETS (SOLO UNA OPCIÓN)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Duelos", value="duels", description="Scripts y duelos", emoji="⚔️"),
-            discord.SelectOption(label="Paid Sources", value="paid_sources", description="Fuentes pagadas", emoji="💰"),
-            discord.SelectOption(label="Alianzas", value="partner", description="Alianzas y coordinación", emoji="🤝"),
-            discord.SelectOption(label="Reportar", value="report", description="Reportar algo", emoji="📢"),
+            discord.SelectOption(
+                label="Quiero hacer mi web",
+                value="web",
+                description="Solicita la creación de tu página web",
+                emoji="🌐"
+            ),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
 
@@ -657,34 +647,26 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🔥🔥  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐀𝐇𝐎𝐑𝐀  🔥🔥\n"
+                "🌐  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓 𝐏𝐀𝐑𝐀 𝐓𝐔 𝐖𝐄𝐁  🌐\n"
                 "═══════════════════════════════════════════════════════════\n\n"
-                "   ⚔️  Compra de Scripts de Duelos\n"
-                "   💰  Paid Sources\n"
-                "   🤝  Alianzas y Coordinación\n"
-                "   📢  Reportar problemas\n\n"
-                "   ✅ Atención 24/7\n"
-                "   ✅ Soporte rápido y confiable\n"
-                "   ✅ Trato directo sin rodeos\n\n"
-                "   📩  ¡ABRE TU TICKET YA!\n"
-                "   👉  No te quedes fuera\n\n"
+                "   🌐  ¿Quieres crear una página web?\n"
+                "   ✅  Diseño profesional y personalizado\n"
+                "   ✅  Desarrollo a medida (HTML, CSS, JS, etc.)\n"
+                "   ✅  Asesoría y soporte durante todo el proceso\n\n"
+                "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🔥🔥  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐍𝐎𝐖  🔥🔥\n"
+                "   🌐  𝐎𝐏𝐄𝐍 𝐀 𝐓𝐈𝐂𝐊𝐄𝐓 𝐅𝐎𝐑 𝐘𝐎𝐔𝐑 𝐖𝐄𝐁  🌐\n"
                 "═══════════════════════════════════════════════════════════\n\n"
-                "   ⚔️  Duel Scripts Purchase\n"
-                "   💰  Paid Sources\n"
-                "   🤝  Alliances & Coordination\n"
-                "   📢  Report issues\n\n"
-                "   ✅ 24/7 Support\n"
-                "   ✅ Fast and reliable service\n"
-                "   ✅ Direct and clear deals\n\n"
-                "   📩  OPEN YOUR TICKET NOW!\n"
-                "   👉  Don't miss out\n\n"
+                "   🌐  Do you want to create a website?\n"
+                "   ✅  Professional and custom design\n"
+                "   ✅  Custom development (HTML, CSS, JS, etc.)\n"
+                "   ✅  Advice and support throughout the process\n\n"
+                "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n\n"
                 "═══════════════════════════════════════════════════════════"
             ),
             color=discord.Color.gold()
         )
-        embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
+        embed.set_footer(text="Selecciona la opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
         await canal_panel.send(embed=embed, view=view)
         print(f"✅ Panel enviado a {canal_panel.name}")
@@ -1525,3 +1507,4 @@ if __name__ == "__main__":
         bot.run(TOKEN)
     except Exception as e:
         print(f"❌ Error al iniciar el bot: {e}")
+    
