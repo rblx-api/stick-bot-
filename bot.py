@@ -304,7 +304,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS (ACTUALIZADO CON DOS OPCIONES)
+# MODALES PARA TICKETS (ACTUALIZADO CON TRES OPCIONES)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -319,6 +319,9 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         elif tipo_ticket == "script":
             label = "💻 ¿De qué trata el script que quieres hacer?"
             placeholder = "Describe el propósito, lenguaje, funcionalidades, etc."
+        elif tipo_ticket == "bot":
+            label = "🤖 ¿De qué quieres que sea el bot?"
+            placeholder = "Describe la funcionalidad, plataforma, propósito del bot, etc."
         else:
             label = "Consulta"
             placeholder = "Describe tu consulta"
@@ -372,7 +375,8 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             # Diccionario de nombres para el embed
             nombres = {
                 "web": "🌐 Quiero hacer mi web",
-                "script": "💻 Quiero hacer mi propio script"
+                "script": "💻 Quiero hacer mi propio script",
+                "bot": "🤖 Quiero hacer mi bot"
             }
 
             embed = discord.Embed(
@@ -413,7 +417,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (ACTUALIZADO CON DOS OPCIONES)
+# VISTAS DE TICKETS (ACTUALIZADO CON TRES OPCIONES)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -429,6 +433,12 @@ class TicketSelect(ui.Select):
                 value="script",
                 description="Solicita la creación de un script a medida",
                 emoji="💻"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer mi bot",
+                value="bot",
+                description="Solicita la creación de un bot personalizado",
+                emoji="🤖"
             ),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
@@ -663,7 +673,7 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🌐💻  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐓𝐔  𝐖𝐄𝐁  𝐎  𝐒𝐂𝐑𝐈𝐏𝐓  🌐💻\n"
+                "🌐💻🤖  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓  𝐎  𝐁𝐎𝐓  🌐💻🤖\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  ¿Quieres crear una página web?\n"
                 "   ✅  Diseño profesional y personalizado\n"
@@ -673,10 +683,14 @@ async def on_ready():
                 "   ✅  Scripts a medida para tus necesidades\n"
                 "   ✅  Lenguajes: Python, JavaScript, Lua, etc.\n"
                 "   ✅  Soporte y optimización incluidos\n\n"
+                "   🤖  ¿Quieres hacer tu propio bot?\n"
+                "   ✅  Bots personalizados para Discord, Telegram, etc.\n"
+                "   ✅  Funcionalidades a tu medida\n"
+                "   ✅  Soporte y mantenimiento continuo\n\n"
                 "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n"
                 "   👉  Elige una opción en el menú desplegable\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🌐💻  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐘𝐎𝐔𝐑  𝐖𝐄𝐁  𝐎𝐑  𝐒𝐂𝐑𝐈𝐏𝐓  🌐💻\n"
+                "   🌐💻🤖  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓  𝐎𝐑  𝐁𝐎𝐓  🌐💻🤖\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  Do you want to create a website?\n"
                 "   ✅  Professional and custom design\n"
@@ -686,6 +700,10 @@ async def on_ready():
                 "   ✅  Custom scripts for your needs\n"
                 "   ✅  Languages: Python, JavaScript, Lua, etc.\n"
                 "   ✅  Support and optimization included\n\n"
+                "   🤖  Do you want to make your own bot?\n"
+                "   ✅  Custom bots for Discord, Telegram, etc.\n"
+                "   ✅  Tailored functionalities\n"
+                "   ✅  Ongoing support and maintenance\n\n"
                 "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n"
                 "   👉  Choose an option from the dropdown menu\n\n"
                 "═══════════════════════════════════════════════════════════"
