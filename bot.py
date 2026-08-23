@@ -33,15 +33,20 @@ if not TOKEN:
 GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
 
-# ROLES PERMITIDOS (Agregados los nuevos)
+# ROLES PERMITIDOS (Staff)
 ROL_PERMITIDO_ID = 1519744694416965782
-ROL_PERMITIDO_2_ID = 1498525987783053473  # Nuevo rol permitido
-ROL_PERMITIDO_3_ID = 1502898587691122688  # Nuevo rol permitido
-ROL_EXENTO_ID = 1519793995264294972
-AUTO_ROLE_ID = 1508133051798917140
-
-# Lista de todos los roles permitidos
+ROL_PERMITIDO_2_ID = 1498525987783053473
+ROL_PERMITIDO_3_ID = 1502898587691122688
 ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
+
+# ROLES EXENTOS DE MODERACIÓN AUTOMÁTICA Y MANUAL
+ROLES_EXENTOS = [
+    1519793995264294972,  # Rol exento original
+    1519795577984909422,  # Nuevo rol exento
+    1519794977440534589   # Nuevo rol exento
+]
+
+AUTO_ROLE_ID = 1508133051798917140
 
 CANAL_PANEL_ID = 1519029606684823732
 CANAL_BIENVENIDA = 1502668382640668853
@@ -81,8 +86,17 @@ RAID_TIME_LIMIT = 60
 # FUNCIÓN PARA VERIFICAR ROLES PERMITIDOS
 # =============================================
 def tiene_rol_permitido(member):
-    """Verifica si el miembro tiene alguno de los roles permitidos"""
     for rol_id in ROLES_PERMITIDOS:
+        if discord.utils.get(member.roles, id=rol_id):
+            return True
+    return False
+
+# =============================================
+# FUNCIÓN PARA VERIFICAR SI ES EXENTO
+# =============================================
+def es_exento(member):
+    """Verifica si el miembro tiene alguno de los roles exentos de moderación"""
+    for rol_id in ROLES_EXENTOS:
         if discord.utils.get(member.roles, id=rol_id):
             return True
     return False
@@ -164,6 +178,12 @@ def contiene_palabras_prohibidas(texto):
     return False
 
 async def aplicar_warn(member, razon, canal=None):
+    # Verificar si el miembro es exento
+    if es_exento(member):
+        if canal:
+            await canal.send(f"🛡️ {member.mention} tiene un rol exento, no se aplica warn.")
+        return
+    
     warns = cargar_warns()
     user_id = str(member.id)
     warns[user_id] = warns.get(user_id, 0) + 1
@@ -182,13 +202,6 @@ async def aplicar_warn(member, razon, canal=None):
         except Exception as e:
             if canal:
                 await canal.send(f"❌ Error al banear a {member.mention}: {e}")
-
-def es_exento(member):
-    roles_exentos = [ROL_EXENTO_ID]
-    for rol_id in roles_exentos:
-        if discord.utils.get(member.roles, id=rol_id):
-            return True
-    return False
 
 # =============================================
 # FUNCIONES PARA MUTES
@@ -304,7 +317,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS (ACTUALIZADO CON CUATRO OPCIONES)
+# MODALES PARA TICKETS
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -312,7 +325,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
 
-        # Configurar el texto del modal según el tipo
         if tipo_ticket == "web":
             label = "🌐 ¿Qué tipo de web quieres?"
             placeholder = "Describe el tipo de web, funcionalidades, diseño, etc."
@@ -359,7 +371,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
             
-            # Agregar todos los roles permitidos al ticket
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -375,7 +386,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 'canal': canal
             }
 
-            # Diccionario de nombres para el embed
             nombres = {
                 "web": "🌐 Quiero hacer mi web",
                 "script": "💻 Quiero hacer mi propio script",
@@ -392,7 +402,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
 
             view = TicketButtons(usuario.id, canal.id)
             
-            # Mencionar todos los roles permitidos
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
             
             await canal.send(
@@ -421,35 +430,15 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (ACTUALIZADO CON CUATRO OPCIONES)
+# VISTAS DE TICKETS
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(
-                label="Quiero hacer mi web",
-                value="web",
-                description="Solicita la creación de tu página web",
-                emoji="🌐"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer mi propio script",
-                value="script",
-                description="Solicita la creación de un script a medida",
-                emoji="💻"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer mi bot",
-                value="bot",
-                description="Solicita la creación de un bot personalizado",
-                emoji="🤖"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer alianza",
-                value="alianza",
-                description="Solicita una alianza con tu servidor",
-                emoji="🤝"
-            ),
+            discord.SelectOption(label="Quiero hacer mi web", value="web", description="Solicita la creación de tu página web", emoji="🌐"),
+            discord.SelectOption(label="Quiero hacer mi propio script", value="script", description="Solicita la creación de un script a medida", emoji="💻"),
+            discord.SelectOption(label="Quiero hacer mi bot", value="bot", description="Solicita la creación de un bot personalizado", emoji="🤖"),
+            discord.SelectOption(label="Quiero hacer alianza", value="alianza", description="Solicita una alianza con tu servidor", emoji="🤝"),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
 
@@ -564,53 +553,36 @@ class TicketButtonsAfterClaim(ui.View):
         await interaction.response.send_modal(NotaModal())
 
 # =============================================
-# FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
+# FUNCIÓN PARA BANEAR A TODOS
 # =============================================
 async def ban_all_members(guild, author, razon="Baneo masivo"):
-    """Función para banear a todos los miembros del servidor"""
-    
-    # Obtener todos los miembros (excepto el bot, dueño, admin y el que ejecuta)
     miembros_a_bannear = []
     miembros_omitidos = []
     
     for member in guild.members:
-        # No banear al bot
         if member.id == bot.user.id:
             miembros_omitidos.append(f"🤖 {member.name} (Bot)")
             continue
-        
-        # No banear al dueño del servidor
         if member.id == guild.owner_id:
             miembros_omitidos.append(f"👑 {member.name} (Dueño)")
             continue
-        
-        # No banear al usuario que ejecuta el comando
         if member.id == author.id:
             miembros_omitidos.append(f"👤 {member.name} (Tú)")
             continue
-        
-        # No banear a administradores (por seguridad)
         if member.guild_permissions.administrator:
             miembros_omitidos.append(f"🛡️ {member.name} (Admin)")
             continue
-        
-        # No banear a usuarios con roles permitidos
         if tiene_rol_permitido(member):
             miembros_omitidos.append(f"🔰 {member.name} (Staff)")
             continue
-        
+        if es_exento(member):
+            miembros_omitidos.append(f"🛡️ {member.name} (Exento)")
+            continue
         miembros_a_bannear.append(member)
     
-    # Si no hay miembros para banear
     if not miembros_a_bannear:
-        return {
-            'baneados': 0,
-            'errores': 0,
-            'omitidos': miembros_omitidos,
-            'errores_lista': []
-        }
+        return {'baneados': 0, 'errores': 0, 'omitidos': miembros_omitidos, 'errores_lista': []}
     
-    # Ejecutar el baneo
     baneados = 0
     errores = 0
     errores_lista = []
@@ -631,7 +603,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# EVENTO ON_READY (PANEL ACTUALIZADO)
+# EVENTO ON_READY
 # =============================================
 @bot.event
 async def on_ready():
@@ -641,15 +613,14 @@ async def on_ready():
     print(f'📝 Canal de logs: {CANAL_LOGS_ID}')
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
+    print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
     
-    # Sincronizar slash commands
     try:
         await bot.tree.sync()
         print(f'✅ Slash commands sincronizados globalmente')
-        
         for guild in bot.guilds:
             try:
                 await bot.tree.sync(guild=guild)
@@ -742,12 +713,10 @@ async def on_ready():
 async def on_member_join(member):
     current_time = datetime.now().timestamp()
     raid_detection[member.guild.id].append(current_time)
-    
     raid_detection[member.guild.id] = [
         t for t in raid_detection[member.guild.id] 
         if current_time - t < RAID_TIME_LIMIT
     ]
-    
     if len(raid_detection[member.guild.id]) > RAID_JOIN_LIMIT:
         canal_logs = bot.get_channel(CANAL_LOGS_ID)
         if canal_logs:
@@ -810,36 +779,23 @@ async def on_member_remove(member):
 # =============================================
 @bot.event
 async def on_message_delete(message):
-    if message.author.bot:
+    if message.author.bot or not message.guild:
         return
-    
-    if not message.guild:
-        return
-    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    
-    embed = discord.Embed(
-        title="🗑️ Mensaje Eliminado",
-        color=discord.Color.red(),
-        timestamp=datetime.now()
-    )
+    embed = discord.Embed(title="🗑️ Mensaje Eliminado", color=discord.Color.red(), timestamp=datetime.now())
     embed.add_field(name="Autor", value=message.author.mention, inline=True)
     embed.add_field(name="ID Autor", value=message.author.id, inline=True)
     embed.add_field(name="Canal", value=message.channel.mention, inline=True)
-    
     if message.content:
         embed.add_field(name="Contenido", value=message.content[:1000] if len(message.content) > 1000 else message.content, inline=False)
     else:
         embed.add_field(name="Contenido", value="*Sin contenido de texto*", inline=False)
-    
     if message.attachments:
         archivos = "\n".join([f"- {archivo.filename}" for archivo in message.attachments[:5]])
         embed.add_field(name="📎 Archivos adjuntos", value=archivos, inline=False)
-    
     embed.set_footer(text=f"ID: {message.id}")
-    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
@@ -850,28 +806,18 @@ async def on_message_delete(message):
 # =============================================
 @bot.event
 async def on_message_edit(before, after):
-    if before.author.bot or before.content == after.content:
+    if before.author.bot or before.content == after.content or not before.guild:
         return
-    
-    if not before.guild:
-        return
-    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    
-    embed = discord.Embed(
-        title="✏️ Mensaje Editado",
-        color=discord.Color.orange(),
-        timestamp=datetime.now()
-    )
+    embed = discord.Embed(title="✏️ Mensaje Editado", color=discord.Color.orange(), timestamp=datetime.now())
     embed.add_field(name="Autor", value=before.author.mention, inline=True)
     embed.add_field(name="ID Autor", value=before.author.id, inline=True)
     embed.add_field(name="Canal", value=before.channel.mention, inline=True)
     embed.add_field(name="Antes", value=before.content[:500] if before.content else "*Vacío*", inline=False)
     embed.add_field(name="Después", value=after.content[:500] if after.content else "*Vacío*", inline=False)
     embed.set_footer(text=f"ID: {before.id}")
-    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
@@ -885,15 +831,9 @@ async def on_member_ban(guild, user):
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    
-    embed = discord.Embed(
-        title="🔨 Usuario Baneado",
-        color=discord.Color.dark_red(),
-        timestamp=datetime.now()
-    )
+    embed = discord.Embed(title="🔨 Usuario Baneado", color=discord.Color.dark_red(), timestamp=datetime.now())
     embed.add_field(name="Usuario", value=f"{user.name}#{user.discriminator}", inline=True)
     embed.add_field(name="ID", value=user.id, inline=True)
-    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
@@ -907,15 +847,9 @@ async def on_member_unban(guild, user):
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    
-    embed = discord.Embed(
-        title="✅ Usuario Desbaneado",
-        color=discord.Color.green(),
-        timestamp=datetime.now()
-    )
+    embed = discord.Embed(title="✅ Usuario Desbaneado", color=discord.Color.green(), timestamp=datetime.now())
     embed.add_field(name="Usuario", value=f"{user.name}#{user.discriminator}", inline=True)
     embed.add_field(name="ID", value=user.id, inline=True)
-    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
@@ -929,7 +863,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Verificar blacklist
+    # Verificar blacklist (los exentos también pueden estar en blacklist)
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -946,26 +880,21 @@ async def on_message(message):
             for mention in message.mentions:
                 if mention.id == bot.user.id:
                     contenido = contenido.replace(f'<@{mention.id}>', '').replace(f'<@!{mention.id}>', '').strip()
-            
             if not contenido:
                 await message.reply("❓ ¿Qué necesitas saber? Hazme una pregunta.")
                 return
-            
             thinking_message = await message.reply("🤔 Pensando...")
             respuesta = await consultar_groq(contenido)
-            
             if len(respuesta) > 1900:
                 respuesta = respuesta[:1900] + "..."
-            
             try:
                 await thinking_message.edit(content=respuesta)
             except Exception as e:
                 await thinking_message.edit(content=f"❌ Error al mostrar la respuesta: {e}")
-        
         await bot.process_commands(message)
         return
 
-    # Sistema de moderación automática
+    # Sistema de moderación automática (SOLO si NO es exento)
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -985,7 +914,6 @@ async def on_message(message):
             current_time = message.created_at.timestamp()
             spam_counter[user_id] = [t for t in spam_counter[user_id] if current_time - t < SPAM_TIME]
             spam_counter[user_id].append(current_time)
-            
             if len(spam_counter[user_id]) > SPAM_LIMIT:
                 razon = "Spam (más de 5 mensajes en 10 segundos)"
                 mensaje_borrado = True
@@ -994,7 +922,6 @@ async def on_message(message):
             try:
                 await message.delete()
                 await aplicar_warn(message.author, razon, message.channel)
-                
                 embed = discord.Embed(
                     title="⚠️ Moderación Automática",
                     description=f"**{message.author.mention}** tu mensaje ha sido eliminado por: **{razon}**",
@@ -1012,31 +939,25 @@ async def on_message(message):
         if len(partes) >= 2:
             comando = partes[1].lower()
             
-            # Verificar si tiene alguno de los roles permitidos
             if not tiene_rol_permitido(message.author):
                 await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
                 await bot.process_commands(message)
                 return
 
-            # =============================================
-            # COMANDO: stick ban all
-            # =============================================
+            # stick ban all
             if comando == 'ban' and len(partes) >= 3 and partes[2].lower() == 'all':
-                # Verificar permisos del bot
                 if not message.guild.me.guild_permissions.ban_members:
                     await message.channel.send("❌ El bot no tiene permisos para banear miembros.")
                     await bot.process_commands(message)
                     return
                 
-                # Pedir confirmación
-                confirmacion_msg = await message.channel.send(
+                await message.channel.send(
                     f"⚠️ **¿ESTÁS SEGURO?**\n"
                     f"Esto baneará a **TODOS** los miembros del servidor.\n"
                     f"Esta acción es **IRREVERSIBLE**.\n\n"
                     f"Para confirmar, escribe `stick confirmar ban all` en los próximos 30 segundos."
                 )
                 
-                # Esperar confirmación
                 def check(m):
                     return m.author == message.author and m.content.lower() == 'stick confirmar ban all' and m.channel == message.channel
                 
@@ -1047,10 +968,8 @@ async def on_message(message):
                     await bot.process_commands(message)
                     return
                 
-                # Ejecutar baneo masivo
                 resultado = await ban_all_members(message.guild, message.author, "Baneo masivo por comando stick")
                 
-                # Enviar resultado
                 embed = discord.Embed(
                     title="✅ BANEO MASIVO COMPLETADO",
                     description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1058,22 +977,18 @@ async def on_message(message):
                                 f"**Omitidos:** {len(resultado['omitidos'])}",
                     color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
                 )
-                
                 if resultado['omitidos']:
                     omitidos_texto = "\n".join(resultado['omitidos'][:10])
                     if len(resultado['omitidos']) > 10:
                         omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
                     embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
-                
                 if resultado['errores_lista']:
                     errores_texto = "\n".join(resultado['errores_lista'][:10])
                     if len(resultado['errores_lista']) > 10:
                         errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
                     embed.add_field(name="Errores", value=errores_texto, inline=False)
-                
                 await message.channel.send(embed=embed)
                 
-                # Log en canal de logs
                 canal_logs = bot.get_channel(CANAL_LOGS_ID)
                 if canal_logs:
                     log_embed = discord.Embed(
@@ -1087,13 +1002,10 @@ async def on_message(message):
                     await canal_logs.send(embed=log_embed)
                 
                 logger.info(f"🔨 Baneo masivo por stick ejecutado por {message.author.name}: {resultado['baneados']} baneados")
-                
                 await bot.process_commands(message)
                 return
 
-            # =============================================
-            # COMANDOS STICK NORMALES (warn, unwarn, ban, mute, unmute)
-            # =============================================
+            # Comandos normales (requieren mención)
             if len(message.mentions) == 0:
                 await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
                 await bot.process_commands(message)
@@ -1101,27 +1013,28 @@ async def on_message(message):
 
             user = message.mentions[0]
 
+            # Verificar si el usuario objetivo es exento
+            if es_exento(user):
+                await message.channel.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
+                await bot.process_commands(message)
+                return
+
             if comando == 'warn':
                 warns = cargar_warns()
                 user_id = str(user.id)
                 warns[user_id] = warns.get(user_id, 0) + 1
                 guardar_warns(warns)
-
                 await message.channel.send(f"⚠️ {user.mention} ha recibido un warn. Total: {warns[user_id]}")
-
                 if warns[user_id] >= 3:
                     if not message.guild.me.guild_permissions.ban_members:
                         await message.channel.send("❌ El bot no tiene permisos para banear.")
                         return
-
                     if user == message.guild.owner:
                         await message.channel.send("❌ No puedo banear al propietario del servidor.")
                         return
-
                     if message.guild.me.top_role <= user.top_role:
                         await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
                         return
-
                     try:
                         await user.ban(reason="3 warnings acumulados (ban automático)")
                         await message.channel.send(f"🚫 {user.mention} ha sido baneado por acumular 3 warnings.")
@@ -1136,12 +1049,10 @@ async def on_message(message):
                 if user_id not in warns or warns[user_id] <= 0:
                     await message.channel.send(f"ℹ️ {user.mention} no tiene warnings para quitar.")
                     return
-
                 warns[user_id] -= 1
                 if warns[user_id] == 0:
                     del warns[user_id]
                 guardar_warns(warns)
-
                 await message.channel.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
 
             elif comando == 'mute':
@@ -1149,36 +1060,27 @@ async def on_message(message):
                     await message.channel.send("❌ Uso: `stick mute @usuario 5m razón`")
                     await bot.process_commands(message)
                     return
-                
                 tiempo = partes[2]
                 razon = ' '.join(partes[3:]) if len(partes) > 3 else "Sin razón"
-                
                 match = re.match(r'(\d+)([smhd])', tiempo.lower())
                 if not match:
                     await message.channel.send("❌ Formato inválido. Usa: 5m, 1h, 1d")
                     await bot.process_commands(message)
                     return
-                
                 cantidad, unidad = match.groups()
                 cantidad = int(cantidad)
-                
                 segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
                 total_segundos = cantidad * segundos
-                
                 if total_segundos > 86400 * 7:
                     await message.channel.send("❌ No puedes mutear por más de 7 días.")
                     await bot.process_commands(message)
                     return
-                
                 mute_role = await get_mute_role(message.guild)
                 await user.add_roles(mute_role)
-                
                 end_time = datetime.now().timestamp() + total_segundos
                 await guardar_mute(message.guild.id, user.id, end_time)
                 mutes_activos[f"{message.guild.id}_{user.id}"] = end_time
-                
                 await message.channel.send(f"🔇 {user.mention} muteado por {cantidad}{unidad}. Razón: {razon}")
-                
                 async def desmutear():
                     await asyncio.sleep(total_segundos)
                     try:
@@ -1189,7 +1091,6 @@ async def on_message(message):
                         await message.channel.send(f"🔊 {user.mention} ha sido desmuteado automáticamente")
                     except Exception as e:
                         print(f"Error al desmutear: {e}")
-                
                 bot.loop.create_task(desmutear())
 
             elif comando == 'unmute':
@@ -1208,7 +1109,6 @@ async def on_message(message):
                 if not bot_member.guild_permissions.ban_members:
                     await message.channel.send("❌ El bot no tiene el permiso `Banear miembros`.")
                     return
-
                 if user == message.author:
                     await message.channel.send("❌ No puedes banearte a ti mismo.")
                     return
@@ -1221,7 +1121,6 @@ async def on_message(message):
                 if bot_member.top_role <= user.top_role:
                     await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
                     return
-
                 try:
                     await user.ban(reason=f"Baneado por {message.author} (comando stick ban)")
                     await message.channel.send(f"✅ {user.mention} ha sido baneado correctamente.")
@@ -1231,12 +1130,9 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS (COMANDOS /)
+# SLASH COMMANDS
 # =============================================
 
-# =============================================
-# /ban_all - BANEAR A TODOS
-# =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
     confirmacion="Escribe 'CONFIRMAR' para ejecutar el baneo masivo",
@@ -1244,19 +1140,12 @@ async def on_message(message):
 )
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, razon: str = "Baneo masivo por administrador"):
-    """⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (SOLO ADMIN)"""
-    
-    # Verificar que el usuario tenga permisos de administrador
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ No tienes permisos para usar este comando.", ephemeral=True)
         return
-    
-    # Verificar que el bot tenga permisos para banear
     if not interaction.guild.me.guild_permissions.ban_members:
         await interaction.response.send_message("❌ El bot no tiene permisos para banear miembros.", ephemeral=True)
         return
-    
-    # Verificar confirmación
     if confirmacion.upper() != "CONFIRMAR":
         await interaction.response.send_message(
             "❌ Debes escribir `CONFIRMAR` para ejecutar el baneo masivo.\n"
@@ -1264,11 +1153,7 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             ephemeral=True
         )
         return
-    
-    # Ejecutar baneo masivo
     resultado = await ban_all_members(interaction.guild, interaction.user, razon)
-    
-    # Verificar si hay miembros para banear
     if resultado['baneados'] == 0 and resultado['errores'] == 0:
         await interaction.response.send_message(
             f"ℹ️ No hay miembros disponibles para banear.\n"
@@ -1276,8 +1161,6 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             ephemeral=True
         )
         return
-    
-    # Enviar resultado
     embed = discord.Embed(
         title="✅ BANEO MASIVO COMPLETADO",
         description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1286,22 +1169,17 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
                     f"**Razón:** {razon}",
         color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
     )
-    
     if resultado['omitidos']:
         omitidos_texto = "\n".join(resultado['omitidos'][:10])
         if len(resultado['omitidos']) > 10:
             omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
         embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
-    
     if resultado['errores_lista']:
         errores_texto = "\n".join(resultado['errores_lista'][:10])
         if len(resultado['errores_lista']) > 10:
             errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
         embed.add_field(name="Errores", value=errores_texto, inline=False)
-    
     await interaction.response.send_message(embed=embed)
-    
-    # Log en canal de logs
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         log_embed = discord.Embed(
@@ -1313,23 +1191,14 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             timestamp=datetime.now()
         )
         await canal_logs.send(embed=log_embed)
-    
     logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
 
-# =============================================
-# OTROS SLASH COMMANDS
-# =============================================
-
 @bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
-@discord.app_commands.describe(
-    accion="Acción a realizar (add o remove)",
-    usuario="Usuario a agregar o quitar de la blacklist"
-)
+@discord.app_commands.describe(accion="Acción a realizar (add o remove)", usuario="Usuario a agregar o quitar de la blacklist")
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario: discord.Member):
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     user_id = str(usuario.id)
-    
     if accion.lower() == 'add':
         if user_id not in blacklist.get('usuarios', []):
             if 'usuarios' not in blacklist:
@@ -1377,55 +1246,35 @@ async def slash_poll(
         opciones.append(opcion4)
     if opcion5:
         opciones.append(opcion5)
-    
     emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
-    
     embed = discord.Embed(
         title="📊 Encuesta",
         description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
         color=discord.Color.blue()
     )
     embed.set_footer(text=f"Encuesta creada por {interaction.user.name} | {datetime.now().strftime('%d/%m/%Y')}")
-    
     await interaction.response.send_message(embed=embed)
     mensaje = await interaction.original_response()
-    
     for i in range(min(len(opciones), 10)):
         await mensaje.add_reaction(emojis[i])
-    
     logger.info(f"📊 Encuesta creada por {interaction.user.name}: {pregunta}")
 
 @bot.tree.command(name="remind", description="⏰ Crear un recordatorio")
-@discord.app_commands.describe(
-    tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)",
-    recordatorio="Lo que quieres recordar"
-)
+@discord.app_commands.describe(tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)", recordatorio="Lo que quieres recordar")
 async def slash_remind(interaction: discord.Interaction, tiempo: str, recordatorio: str):
     match = re.match(r'(\d+)([smhd])', tiempo.lower())
     if not match:
         await interaction.response.send_message("❌ Formato inválido. Usa: 10s, 5m, 1h, 1d", ephemeral=True)
         return
-    
     cantidad, unidad = match.groups()
     cantidad = int(cantidad)
-    
-    segundos = {
-        's': 1,
-        'm': 60,
-        'h': 3600,
-        'd': 86400
-    }.get(unidad, 0)
-    
+    segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
     total_segundos = cantidad * segundos
-    
     if total_segundos > 86400 * 7:
         await interaction.response.send_message("❌ No puedes programar recordatorios por más de 7 días.", ephemeral=True)
         return
-    
     await interaction.response.send_message(f"✅ Recordatorio programado para {cantidad}{unidad}: {recordatorio}")
-    
     await asyncio.sleep(total_segundos)
-    
     canal = interaction.channel
     await canal.send(f"⏰ {interaction.user.mention}, recordatorio: **{recordatorio}**")
     logger.info(f"⏰ Recordatorio de {interaction.user.name}: {recordatorio}")
@@ -1433,17 +1282,13 @@ async def slash_remind(interaction: discord.Interaction, tiempo: str, recordator
 @bot.tree.command(name="serverstats", description="📊 Ver estadísticas del servidor")
 async def slash_serverstats(interaction: discord.Interaction):
     guild = interaction.guild
-    
     total_members = guild.member_count
     humanos = sum(1 for m in guild.members if not m.bot)
     bots = total_members - humanos
     online = sum(1 for m in guild.members if m.status != discord.Status.offline)
-    
-    embed = discord.Embed(
-        title=f"📊 Estadísticas de {guild.name}",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
+    embed = discord.Embed(title=f"📊 Estadísticas de {guild.name}", color=discord.Color.blue())
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
     embed.add_field(name="👥 Total", value=total_members, inline=True)
     embed.add_field(name="👤 Humanos", value=humanos, inline=True)
     embed.add_field(name="🤖 Bots", value=bots, inline=True)
@@ -1452,7 +1297,6 @@ async def slash_serverstats(interaction: discord.Interaction):
     embed.add_field(name="👑 Dueño", value=guild.owner.mention, inline=True)
     embed.add_field(name="📊 Canales", value=len(guild.channels), inline=True)
     embed.add_field(name="🎭 Roles", value=len(guild.roles), inline=True)
-    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="userinfo", description="ℹ️ Ver información de un usuario")
@@ -1460,7 +1304,6 @@ async def slash_serverstats(interaction: discord.Interaction):
 async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Member = None):
     if miembro is None:
         miembro = interaction.user
-    
     embed = discord.Embed(
         title=f"ℹ️ Información de {miembro.name}",
         color=miembro.color if miembro.color != discord.Color.default() else discord.Color.blue()
@@ -1472,7 +1315,6 @@ async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Memb
     embed.add_field(name="📥 Ingreso", value=miembro.joined_at.strftime("%d/%m/%Y %H:%M") if miembro.joined_at else "N/A", inline=True)
     embed.add_field(name="🎭 Roles", value=len(miembro.roles) - 1, inline=True)
     embed.add_field(name="🟢 Estado", value=miembro.status, inline=True)
-    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente")
@@ -1492,11 +1334,9 @@ async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.
     if rol is None:
         await interaction.response.send_message(f"❌ El rol con ID {AUTO_ROLE_ID} no existe", ephemeral=True)
         return
-    
     if rol in miembro.roles:
         await interaction.response.send_message(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}", ephemeral=True)
         return
-    
     try:
         await miembro.add_roles(rol)
         await interaction.response.send_message(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
