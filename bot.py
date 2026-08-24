@@ -41,9 +41,9 @@ ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
 
 # ROLES EXENTOS DE MODERACIÓN AUTOMÁTICA Y MANUAL
 ROLES_EXENTOS = [
+    1519744694416965782,  # Rol staff 1 (también es permitido)
+    1541563602912149604,  # Nuevo rol exento
     1519793995264294972,  # Rol exento original
-    1519795577984909422,  # Nuevo rol exento
-    1519794977440534589   # Nuevo rol exento
 ]
 
 AUTO_ROLE_ID = 1508133051798917140
@@ -317,7 +317,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS
+# MODALES PARA TICKETS (ACTUALIZADO)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -334,6 +334,9 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         elif tipo_ticket == "bot":
             label = "🤖 ¿De qué quieres que sea el bot?"
             placeholder = "Describe la funcionalidad, plataforma, propósito del bot, etc."
+        elif tipo_ticket == "comunidad":
+            label = "🏘️ Danos información de cómo quieres que sea el DC"
+            placeholder = "Describe el nombre, temática, roles, canales, reglas, etc."
         elif tipo_ticket == "alianza":
             label = "🤝 ¿Cuántos miembros tienes?"
             placeholder = "Indica el número de miembros de tu servidor y otros detalles"
@@ -390,6 +393,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 "web": "🌐 Quiero hacer mi web",
                 "script": "💻 Quiero hacer mi propio script",
                 "bot": "🤖 Quiero hacer mi bot",
+                "comunidad": "🏘️ Configurar comunidad de Discord",
                 "alianza": "🤝 Quiero hacer alianza"
             }
 
@@ -430,7 +434,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS
+# VISTAS DE TICKETS (ACTUALIZADO)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -438,6 +442,7 @@ class TicketSelect(ui.Select):
             discord.SelectOption(label="Quiero hacer mi web", value="web", description="Solicita la creación de tu página web", emoji="🌐"),
             discord.SelectOption(label="Quiero hacer mi propio script", value="script", description="Solicita la creación de un script a medida", emoji="💻"),
             discord.SelectOption(label="Quiero hacer mi bot", value="bot", description="Solicita la creación de un bot personalizado", emoji="🤖"),
+            discord.SelectOption(label="Configurar comunidad de Discord", value="comunidad", description="Solicita la configuración de tu comunidad en Discord", emoji="🏘️"),
             discord.SelectOption(label="Quiero hacer alianza", value="alianza", description="Solicita una alianza con tu servidor", emoji="🤝"),
         ]
         super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
@@ -603,7 +608,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# EVENTO ON_READY
+# EVENTO ON_READY (PANEL ACTUALIZADO)
 # =============================================
 @bot.event
 async def on_ready():
@@ -654,7 +659,7 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🌐💻🤖🤝  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓  𝐎  𝐀𝐋𝐈𝐀𝐍𝐙𝐀  🌐💻🤖🤝\n"
+                "🌐💻🤖🏘️🤝  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓,  𝐂𝐎𝐌𝐔𝐍𝐈𝐃𝐀𝐃  𝐎  𝐀𝐋𝐈𝐀𝐍𝐙𝐀  🌐💻🤖🏘️🤝\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  ¿Quieres crear una página web?\n"
                 "   ✅  Diseño profesional y personalizado\n"
@@ -668,6 +673,10 @@ async def on_ready():
                 "   ✅  Bots personalizados para Discord, Telegram, etc.\n"
                 "   ✅  Funcionalidades a tu medida\n"
                 "   ✅  Soporte y mantenimiento continuo\n\n"
+                "   🏘️  ¿Quieres configurar tu comunidad de Discord?\n"
+                "   ✅  Configuración completa de tu servidor\n"
+                "   ✅  Roles, canales, reglas y más\n"
+                "   ✅  Asesoría profesional para tu comunidad\n\n"
                 "   🤝  ¿Quieres hacer una alianza?\n"
                 "   ✅  Alianzas estratégicas con tu servidor\n"
                 "   ✅  Coordinación y colaboración mutua\n"
@@ -675,7 +684,7 @@ async def on_ready():
                 "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n"
                 "   👉  Elige una opción en el menú desplegable\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🌐💻🤖🤝  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓  𝐎𝐑  𝐀𝐋𝐋𝐈𝐀𝐍𝐂𝐄  🌐💻🤖🤝\n"
+                "   🌐💻🤖🏘️🤝  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓,  𝐂𝐎𝐌𝐌𝐔𝐍𝐈𝐓𝐘  𝐎𝐑  𝐀𝐋𝐋𝐈𝐀𝐍𝐂𝐄  🌐💻🤖🏘️🤝\n"
                 "═══════════════════════════════════════════════════════════\n\n"
                 "   🌐  Do you want to create a website?\n"
                 "   ✅  Professional and custom design\n"
@@ -689,6 +698,10 @@ async def on_ready():
                 "   ✅  Custom bots for Discord, Telegram, etc.\n"
                 "   ✅  Tailored functionalities\n"
                 "   ✅  Ongoing support and maintenance\n\n"
+                "   🏘️  Do you want to set up your Discord community?\n"
+                "   ✅  Complete server configuration\n"
+                "   ✅  Roles, channels, rules and more\n"
+                "   ✅  Professional advice for your community\n\n"
                 "   🤝  Do you want to make an alliance?\n"
                 "   ✅  Strategic alliances with your server\n"
                 "   ✅  Coordination and mutual collaboration\n"
