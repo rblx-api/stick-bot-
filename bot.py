@@ -622,11 +622,12 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# FUNCIÓN DE BYPASS POLSEC
+# FUNCIÓN DE BYPASS POLSEC (MEJORADA)
 # =============================================
 def polsec_bypass(content):
     """
     Función para eliminar protecciones de PolSec y limpiar ofuscación
+    Ahora inyecta una key falsa válida para evitar el error "no key was provided"
     """
     cleaned = content
     
@@ -636,32 +637,42 @@ def polsec_bypass(content):
         is_polsec = True
         logger.info("🔍 Script de PolSec detectado")
     
-    # 2. Eliminar script_key y key
-    cleaned = re.sub(r'script_key\s*=\s*["\'][^"\']*["\'];?', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'key\s*=\s*["\'][^"\']*["\'];?', '', cleaned, flags=re.IGNORECASE)
+    # 2. INYECTAR UNA KEY FALSA VÁLIDA AL INICIO
+    # Esto evita el error "no key was provided"
+    fake_key = '"BYPASSED_BY_STICK_HUB"'
+    cleaned = f'-- BYPASSED BY STICK HUB\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n' + cleaned
     
-    # 3. Eliminar verificaciones de key
-    # if key ~= "..." then
+    # 3. También inyectar al final por si acaso
+    cleaned = cleaned + f'\n\n-- BYPASS END\nscript_key = {fake_key}\nkey = {fake_key}'
+    
+    # 4. Eliminar verificaciones de key que puedan estar en el script
+    # if key ~= "..." then error("no key was provided") end
+    cleaned = re.sub(r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?error[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?error[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+    
+    # 5. Eliminar verificaciones de key simples
     cleaned = re.sub(r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then\s*return\s*end', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
     
-    # 4. Reemplazar chequeos de key
+    # 6. Reemplazar chequeos de key con true
     cleaned = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
     cleaned = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
+    cleaned = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
+    cleaned = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
     
-    # 5. Eliminar TRIAL y FREE
+    # 7. Eliminar TRIAL y FREE
     cleaned = re.sub(r'["\']TRIAL["\']', '""', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'["\']FREE["\']', '""', cleaned, flags=re.IGNORECASE)
     
-    # 6. Eliminar anti-bypass
+    # 8. Eliminar anti-bypass
     cleaned = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
     cleaned = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
     
-    # 7. Reemplazar funciones de verificación
+    # 9. Reemplazar funciones de verificación
     cleaned = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
     
-    # 8. Si es PolSec, limpiar ofuscación básica
+    # 10. Si es PolSec, limpiar ofuscación básica
     if is_polsec:
         # Remover variables ofuscadas
         cleaned = re.sub(r'local\s+[a-zA-Z0-9_]+\s*=\s*[0-9a-fA-Fx]+;?', '', cleaned)
@@ -694,11 +705,6 @@ def polsec_bypass(content):
         
         # Limpiar saltos de línea
         cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
-    
-    # 9. Si el contenido es muy pequeño después de limpiar, usar el original
-    if len(cleaned) < 100 and is_polsec:
-        logger.warning("⚠️ El script no se pudo desofuscar completamente, usando original")
-        return content
     
     return cleaned.strip()
 
@@ -834,6 +840,7 @@ async def gethelp_command(ctx):
     embed.add_field(
         name='🛡️ PolSec Bypass',
         value='• Detecta automáticamente scripts de PolSec\n'
+              '• Inyecta una key falsa válida\n'
               '• Elimina verificaciones de key (TRIAL o KEY)\n'
               '• Remueve anti-bypass y ofuscación básica\n'
               '• Si no se puede desofuscar, envía el original',
@@ -1052,7 +1059,7 @@ async def stick_cmd(ctx, *, args=None):
         await ctx.send("❌ Comando no reconocido. Usa: warn, unwarn, ban, mute, unmute")
 
 # =============================================
-# EVENTO ON_READY (COMPLETO)
+# EVENTO ON_READY
 # =============================================
 @bot.event
 async def on_ready():
@@ -1064,7 +1071,7 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comando .get funcionará en el canal: <#{CANAL_GET_ID}>')
-    print(f'🛡️ PolSec Bypass activado')
+    print(f'🛡️ PolSec Bypass activado - Inyección de key falsa incluida')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -1142,7 +1149,7 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTOS Y FUNCIONES RESTANTES (RESUMIDOS)
+# EVENTOS RESTANTES (RESUMIDOS)
 # =============================================
 
 @bot.event
