@@ -11,8 +11,6 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
-import ast
-import math
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -32,12 +30,9 @@ logger = logging.getLogger(__name__)
 # =============================================
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    logger.error("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
-    sys.exit(1)
+    raise ValueError("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
 
-logger.info("✅ TOKEN encontrado correctamente")
-
-GROQ_API_KEY = os.getenv('GROQ_API_KEY', "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")
+GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
 
 # ROLES PERMITIDOS (Staff)
@@ -93,7 +88,7 @@ RAID_JOIN_LIMIT = 5
 RAID_TIME_LIMIT = 60
 
 # =============================================
-# FUNCIONES PARA VERIFICAR ROLES
+# FUNCIÓN PARA VERIFICAR ROLES PERMITIDOS
 # =============================================
 def tiene_rol_permitido(member):
     for rol_id in ROLES_PERMITIDOS:
@@ -108,23 +103,17 @@ def es_exento(member):
     return False
 
 # =============================================
-# FUNCIONES PARA MANEJO DE ARCHIVOS
+# FUNCIONES PARA MANEJO DE WARNS
 # =============================================
 def cargar_warns():
     if os.path.exists(ARCHIVO_WARNS):
-        try:
-            with open(ARCHIVO_WARNS, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return {}
+        with open(ARCHIVO_WARNS, 'r', encoding='utf-8') as f:
+            return json.load(f)
     return {}
 
 def guardar_warns(warns):
-    try:
-        with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
-            json.dump(warns, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Error guardando warns: {e}")
+    with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
+        json.dump(warns, f, indent=4, ensure_ascii=False)
 
 def cargar_json(archivo, default=None):
     if default is None:
@@ -138,11 +127,8 @@ def cargar_json(archivo, default=None):
     return default
 
 def guardar_json(archivo, datos):
-    try:
-        with open(archivo, 'w', encoding='utf-8') as f:
-            json.dump(datos, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        logger.error(f"Error guardando {archivo}: {e}")
+    with open(archivo, 'w', encoding='utf-8') as f:
+        json.dump(datos, f, indent=4, ensure_ascii=False)
 
 # =============================================
 # FUNCIONES DE MODERACIÓN
@@ -220,35 +206,29 @@ async def aplicar_warn(member, razon, canal=None):
 async def get_mute_role(guild):
     mute_role = discord.utils.get(guild.roles, name="Muted")
     if not mute_role:
-        try:
-            mute_role = await guild.create_role(
-                name="Muted", 
-                permissions=discord.Permissions(0)
-            )
-            for channel in guild.channels:
-                try:
-                    await channel.set_permissions(
-                        mute_role, 
-                        send_messages=False, 
-                        add_reactions=False, 
-                        speak=False,
-                        connect=False
-                    )
-                except:
-                    pass
-        except Exception as e:
-            logger.error(f"Error creando rol Muted: {e}")
+        mute_role = await guild.create_role(
+            name="Muted", 
+            permissions=discord.Permissions(0)
+        )
+        for channel in guild.channels:
+            try:
+                await channel.set_permissions(
+                    mute_role, 
+                    send_messages=False, 
+                    add_reactions=False, 
+                    speak=False,
+                    connect=False
+                )
+            except:
+                pass
     return mute_role
 
 async def cargar_mutes():
     global mutes_activos
-    try:
-        mutes_data = cargar_json(ARCHIVO_MUTES)
-        for guild_id, users in mutes_data.items():
-            for user_id, end_time in users.items():
-                mutes_activos[f"{guild_id}_{user_id}"] = end_time
-    except Exception as e:
-        logger.error(f"Error cargando mutes: {e}")
+    mutes_data = cargar_json(ARCHIVO_MUTES)
+    for guild_id, users in mutes_data.items():
+        for user_id, end_time in users.items():
+            mutes_activos[f"{guild_id}_{user_id}"] = end_time
 
 async def guardar_mute(guild_id, user_id, end_time):
     mutes = cargar_json(ARCHIVO_MUTES)
@@ -293,20 +273,35 @@ async def consultar_groq(pregunta):
         "top_p": 0.9
     }
     
+    logger.info(f"🔍 Enviando pregunta a Groq: {pregunta[:100]}...")
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=data, timeout=30) as response:
                 if response.status == 200:
                     resultado = await response.json()
-                    return resultado['choices'][0]['message']['content']
+                    respuesta = resultado['choices'][0]['message']['content']
+                    logger.info(f"✅ Respuesta recibida de Groq: {respuesta[:100]}...")
+                    return respuesta
+                elif response.status == 401:
+                    return "❌ La API key de Groq es inválida o ha expirado. Contacta al administrador."
+                elif response.status == 429:
+                    return "❌ Demasiadas peticiones a la IA. Espera un momento y vuelve a intentarlo."
                 else:
+                    error_text = await response.text()
+                    logger.error(f"❌ Error en la API de Groq: {response.status} - {error_text}")
                     return f"❌ Error {response.status}: La API de Groq no respondió correctamente."
+    except aiohttp.ClientTimeout:
+        return "❌ La IA tardó demasiado en responder. Intenta de nuevo con una pregunta más corta."
+    except aiohttp.ClientError as e:
+        logger.error(f"❌ Error de conexión con Groq: {e}")
+        return "❌ Error de conexión con la API de Groq. Verifica tu conexión a internet."
     except Exception as e:
-        logger.error(f"Error en Groq: {e}")
-        return f"❌ Error al consultar la IA: {str(e)[:100]}"
+        logger.error(f"❌ Error al consultar la API de Groq: {e}")
+        return f"❌ Error inesperado. Por favor, intenta de nuevo más tarde."
 
 # =============================================
-# FUNCIÓN PARA OBTENER CATEGORÍA DE TICKETS
+# FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
 # =============================================
 async def obtener_categoria(guild):
     if CATEGORIA_TICKETS_ID:
@@ -315,10 +310,7 @@ async def obtener_categoria(guild):
             return categoria
     categoria = discord.utils.get(guild.categories, name="TICKETS")
     if not categoria:
-        try:
-            categoria = await guild.create_category("TICKETS")
-        except Exception as e:
-            logger.error(f"Error creando categoría: {e}")
+        categoria = await guild.create_category("TICKETS")
     return categoria
 
 # =============================================
@@ -329,7 +321,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         super().__init__()
         self.tipo_ticket = tipo_ticket
         self.usuario = usuario
-
         if tipo_ticket == "web":
             label = "🌐 ¿Qué tipo de web quieres?"
             placeholder = "Describe el tipo de web, funcionalidades, diseño, etc."
@@ -348,7 +339,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
         else:
             label = "Consulta"
             placeholder = "Describe tu consulta"
-
+        
         self.respuesta_input = ui.TextInput(
             label=label,
             style=discord.TextStyle.paragraph,
@@ -372,10 +363,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                     return
 
             categoria = await obtener_categoria(guild)
-            if not categoria:
-                await interaction.followup.send("❌ Error al obtener la categoría para tickets.", ephemeral=True)
-                return
-
             nombre_canal = f"ticket-{usuario.name.lower().replace(' ', '-')}"
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -407,7 +394,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             }
 
             embed = discord.Embed(
-                title=f"🎫 Ticket de {usuario.name}",
+                title=f"Ticket de {usuario.name}",
                 description=f"**Tipo:** {nombres.get(self.tipo_ticket, self.tipo_ticket)}\n\n**Respuesta:** {respuesta}\n\n*Un miembro del staff te atenderá.*",
                 color=discord.Color.orange()
             )
@@ -426,8 +413,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             await interaction.followup.send(f"✅ Ticket creado: {canal.mention}", ephemeral=True)
 
         except Exception as e:
-            logger.error(f"Error en PreguntaModal: {e}")
-            await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)[:200]}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)}", ephemeral=True)
 
 class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
     nota = ui.TextInput(
@@ -439,13 +425,9 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
     )
     
     async def on_submit(self, interaction: discord.Interaction):
-        try:
-            canal = interaction.channel
-            await canal.send(f"📝 **Nota interna de {interaction.user.name}:**\n{self.nota.value}")
-            await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
-        except Exception as e:
-            logger.error(f"Error en NotaModal: {e}")
-            await interaction.response.send_message(f"❌ Error: {str(e)[:200]}", ephemeral=True)
+        canal = interaction.channel
+        await canal.send(f"📝 **Nota interna de {interaction.user.name}:**\n{self.nota.value}")
+        await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
 # VISTAS DE TICKETS
@@ -572,7 +554,7 @@ class TicketButtonsAfterClaim(ui.View):
         await interaction.response.send_modal(NotaModal())
 
 # =============================================
-# FUNCIÓN PARA BANEAR A TODOS
+# FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
 # =============================================
 async def ban_all_members(guild, author, razon="Baneo masivo"):
     miembros_a_bannear = []
@@ -629,31 +611,25 @@ def evaluar_string_char(match):
     """Convierte string.char(...) en una cadena literal"""
     args = match.group(1)
     try:
-        # Extraer números separados por coma
         numeros = [int(n.strip()) for n in args.split(',')]
         return '"' + ''.join(chr(n) for n in numeros) + '"'
     except:
         return match.group(0)
 
 def expand_concatenaciones(code):
-    """Intenta expandir concatenaciones de cadenas con .. en una sola cadena"""
-    # Esto es muy básico, solo para casos simples: "a" .. "b" -> "ab"
+    """Expande concatenaciones de cadenas con .. en una sola cadena"""
     def reemplazar_concat(match):
         left = match.group(1)
         right = match.group(2)
-        # Si ambos son strings literales, concatenarlos
         if (left.startswith('"') and left.endswith('"')) or (left.startswith("'") and left.endswith("'")):
             if (right.startswith('"') and right.endswith('"')) or (right.startswith("'") and right.endswith("'")):
-                # Quitar comillas y concatenar
                 l = left[1:-1]
                 r = right[1:-1]
                 return f'"{l}{r}"'
-        # Si no, dejar igual
         return match.group(0)
     
-    # Buscar patrones de concatenación: "string" .. "string"
     pattern = r'(["\'][^"\']*["\'])\s*\.\.\s*(["\'][^"\']*["\'])'
-    for _ in range(10):  # Iterar varias veces para concatenaciones múltiples
+    for _ in range(10):
         nuevo = re.sub(pattern, reemplazar_concat, code)
         if nuevo == code:
             break
@@ -661,12 +637,10 @@ def expand_concatenaciones(code):
     return code
 
 def simplificar_operaciones(code):
-    """Simplifica operaciones matemáticas básicas (ej: 1+2 -> 3)"""
-    # Reemplazar operaciones simples entre números
+    """Simplifica operaciones matemáticas básicas"""
     def eval_expr(match):
         expr = match.group(1)
         try:
-            # Evaluar solo si es seguro (solo números y operadores básicos)
             if re.match(r'^[\d+\-*/()\s]+$', expr):
                 result = eval(expr)
                 return str(result)
@@ -674,36 +648,39 @@ def simplificar_operaciones(code):
         except:
             return match.group(0)
     
-    # Buscar expresiones matemáticas entre paréntesis o simples
-    pattern = r'\(([\d+\-*/()\s]+)\)'
-    code = re.sub(pattern, eval_expr, code)
-    # También buscar operaciones sin paréntesis
-    pattern = r'(\d+\s*[\+\-\*/]\s*\d+)'
-    code = re.sub(pattern, eval_expr, code)
+    code = re.sub(r'\(([\d+\-*/()\s]+)\)', eval_expr, code)
+    code = re.sub(r'(\d+\s*[\+\-\*/]\s*\d+)', eval_expr, code)
     return code
 
-def eliminar_cargas_internas(code):
-    """Intenta eliminar loadstring internos que cargan código ya descargado"""
-    # Buscar patrones como loadstring(game:HttpGet(...))() y reemplazar por el código
-    # Esto es peligroso porque podría causar recursión, pero para scripts de PolSec
-    # a menudo el código ofuscado está dentro de un loadstring.
-    # Aquí solo eliminamos los loadstring que envuelven todo el script.
-    # Si el script comienza con loadstring(game:HttpGet(...))(), lo extraemos.
-    # Pero para simplificar, dejamos que el usuario vea el código ofuscado sin loadstring.
-    # En su lugar, eliminamos la llamada a loadstring si el contenido es una cadena literal.
-    # Mejor no hacer nada aquí para evitar errores.
+def eliminar_funciones_anonimas(code):
+    def reemplazar_func(match):
+        inner = match.group(1)
+        return_match = re.search(r'return\s+([^;]*?);', inner)
+        if return_match:
+            valor = return_match.group(1).strip()
+            if valor.startswith('"') or valor.isdigit():
+                return valor
+        return match.group(0)
+    
+    pattern = r'\(function\(\)\s*(.*?)\s*end\)\(\)'
+    code = re.sub(pattern, reemplazar_func, code, flags=re.DOTALL)
     return code
 
-def polsec_bypass_deobf(content):
-    """Aplica bypass de PolSec (inyección de clave falsa, eliminación de verificaciones)"""
-    cleaned = content
+def eliminar_loadstring_interno(code):
+    def quitar_loadstring(match):
+        contenido = match.group(1)
+        if (contenido.startswith('"') and contenido.endswith('"')) or (contenido.startswith("'") and contenido.endswith("'")):
+            return contenido
+        return match.group(0)
+    
+    code = re.sub(r'loadstring\s*\(\s*(["\'])(.*?)\1\s*\)\s*\(?', quitar_loadstring, code, flags=re.DOTALL)
+    return code
+
+def polsec_bypass_deobf(code):
     fake_key = '"BYPASSED_BY_STICK_HUB"'
-    
-    # Inyectar key falsa al inicio
     prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
-    cleaned = prefix + cleaned
+    code = prefix + code
     
-    # Eliminar verificaciones de key
     patrones = [
         r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
         r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
@@ -713,67 +690,48 @@ def polsec_bypass_deobf(content):
         r'if\s+script_key\s*==\s*nil\s+then[^{]*?end',
     ]
     for p in patrones:
-        cleaned = re.sub(p, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+        code = re.sub(p, '', code, flags=re.IGNORECASE | re.DOTALL)
     
-    # Reemplazar comparaciones
-    cleaned = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
-    cleaned = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
-    cleaned = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
-    cleaned = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
-    cleaned = re.sub(r'key\s*==\s*nil', 'false', cleaned)
-    cleaned = re.sub(r'script_key\s*==\s*nil', 'false', cleaned)
-    cleaned = re.sub(r'key\s*~=\s*nil', 'true', cleaned)
-    cleaned = re.sub(r'script_key\s*~=\s*nil', 'true', cleaned)
-    cleaned = re.sub(r'not\s+key\b', 'false', cleaned)
-    cleaned = re.sub(r'not\s+script_key\b', 'false', cleaned)
+    code = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', code)
+    code = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', code)
+    code = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', code)
+    code = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', code)
+    code = re.sub(r'key\s*==\s*nil', 'false', code)
+    code = re.sub(r'script_key\s*==\s*nil', 'false', code)
+    code = re.sub(r'key\s*~=\s*nil', 'true', code)
+    code = re.sub(r'script_key\s*~=\s*nil', 'true', code)
+    code = re.sub(r'not\s+key\b', 'false', code)
+    code = re.sub(r'not\s+script_key\b', 'false', code)
     
-    # Reemplazar funciones de verificación
-    cleaned = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
+    code = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
+    code = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
+    code = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     
-    # Eliminar anti-bypass
-    cleaned = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
+    code = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
+    code = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
+    code = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
+    code = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
     
-    return cleaned
+    return code
 
 def deofuscador_general(code):
-    """Aplica múltiples técnicas de deofuscación"""
-    # 1. Bypass PolSec si se detecta
     if 'polsec' in code.lower() or 'getpolsec' in code.lower():
         code = polsec_bypass_deobf(code)
     
-    # 2. Reemplazar string.char(...) por cadenas literales
     code = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, code)
-    
-    # 3. Expandir concatenaciones
     code = expand_concatenaciones(code)
-    
-    # 4. Simplificar operaciones matemáticas
     code = simplificar_operaciones(code)
+    code = eliminar_funciones_anonimas(code)
+    code = eliminar_loadstring_interno(code)
     
-    # 5. Eliminar loadstring redundante (si es una cadena literal)
-    def quitar_loadstring(match):
-        contenido = match.group(1)
-        # Si el contenido es una cadena literal, devolverla sin loadstring
-        if (contenido.startswith('"') and contenido.endswith('"')) or (contenido.startswith("'") and contenido.endswith("'")):
-            return contenido
-        return match.group(0)
-    
-    # Buscar loadstring("...") y quitar el loadstring si es literal
-    code = re.sub(r'loadstring\s*\(\s*(["\'])(.*?)\1\s*\)\s*\(?', quitar_loadstring, code, flags=re.DOTALL)
-    
-    # 6. Eliminar paréntesis y espacios extra
     code = re.sub(r'\s+', ' ', code)
     code = re.sub(r'\n\s*\n', '\n', code)
+    code = re.sub(r' +', ' ', code)
     
     return code
 
 # =============================================
-# COMANDO .deobf (DEOFUSCAR SCRIPT)
+# COMANDO .deobf
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
@@ -781,7 +739,6 @@ async def deobf_command(ctx, *, loadstring):
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
-    # Extraer URL
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     if not url_match:
         url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
@@ -807,8 +764,6 @@ async def deobf_command(ctx, *, loadstring):
                         return
                     
                     content = await response.text()
-                    
-                    # Aplicar deofuscación
                     deobfuscated = deofuscador_general(content)
                     
                     if len(deobfuscated) > 1900:
@@ -830,7 +785,7 @@ async def deobf_command(ctx, *, loadstring):
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO .get (SIN BYPASS - SOLO MUESTRA EL CONTENIDO)
+# COMANDO .get
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
@@ -919,7 +874,65 @@ async def gethelp_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK (resumidos)
+# COMANDO !panel
+# =============================================
+@bot.command(name='panel')
+async def panel_cmd(ctx):
+    if not tiene_rol_permitido(ctx.author):
+        await ctx.send("❌ No tienes permiso para usar este comando.")
+        return
+    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
+
+# =============================================
+# COMANDO !clear_spam
+# =============================================
+@bot.command(name='clear_spam')
+@commands.has_permissions(administrator=True)
+async def clear_spam_cmd(ctx):
+    global spam_counter
+    spam_counter.clear()
+    await ctx.send("✅ Contador de spam limpiado.")
+
+# =============================================
+# COMANDO !set_autorole
+# =============================================
+@bot.command(name='set_autorole')
+@commands.has_permissions(administrator=True)
+async def set_autorole_cmd(ctx, rol_id: int = None):
+    global AUTO_ROLE_ID
+    if rol_id is None:
+        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
+        return
+    rol = ctx.guild.get_role(rol_id)
+    if rol is None:
+        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
+        return
+    AUTO_ROLE_ID = rol_id
+    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+
+# =============================================
+# COMANDO !add_autorole
+# =============================================
+@bot.command(name='add_autorole')
+@commands.has_permissions(administrator=True)
+async def add_autorole_cmd(ctx, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = ctx.author
+    rol = ctx.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
+        return
+    if rol in miembro.roles:
+        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
+        return
+    try:
+        await miembro.add_roles(rol)
+        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error al asignar el rol: {e}")
+
+# =============================================
+# COMANDO !stick
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
@@ -1156,9 +1169,9 @@ async def on_ready():
     
     canal_get = bot.get_channel(CANAL_GET_ID)
     if canal_get:
-        print(f'✅ Canal para comandos .get y .deobf encontrado: {canal_get.name}')
+        print(f'✅ Canal para .get y .deobf encontrado: {canal_get.name}')
     else:
-        print(f'❌ Canal para comandos .get y .deobf NO encontrado. Verifica el ID: {CANAL_GET_ID}')
+        print(f'❌ Canal para .get y .deobf NO encontrado. Verifica el ID: {CANAL_GET_ID}')
     
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
@@ -1203,16 +1216,18 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTOS Y SLASH COMMANDS (resumidos)
+# EVENTO DE BIENVENIDA + AUTO-ROLE + ANTI-RAID
 # =============================================
 @bot.event
 async def on_member_join(member):
     current_time = datetime.now().timestamp()
     raid_detection[member.guild.id].append(current_time)
+    
     raid_detection[member.guild.id] = [
         t for t in raid_detection[member.guild.id] 
         if current_time - t < RAID_TIME_LIMIT
     ]
+    
     if len(raid_detection[member.guild.id]) > RAID_JOIN_LIMIT:
         canal_logs = bot.get_channel(CANAL_LOGS_ID)
         if canal_logs:
@@ -1256,6 +1271,9 @@ async def on_member_join(member):
             await member.add_roles(mute_role)
             print(f"🔇 Mute reactivado para {member.name}")
 
+# =============================================
+# EVENTO DE DESPEDIDA
+# =============================================
 @bot.event
 async def on_member_remove(member):
     canal = bot.get_channel(CANAL_DESPEDIDA)
@@ -1267,80 +1285,131 @@ async def on_member_remove(member):
         embed.set_image(url=member.display_avatar.url)
         await canal.send(embed=embed)
 
+# =============================================
+# EVENTO DE LOGS - MENSAJES ELIMINADOS
+# =============================================
 @bot.event
 async def on_message_delete(message):
-    if message.author.bot or not message.guild:
+    if message.author.bot:
         return
+    
+    if not message.guild:
+        return
+    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    embed = discord.Embed(title="🗑️ Mensaje Eliminado", color=discord.Color.red(), timestamp=datetime.now())
+    
+    embed = discord.Embed(
+        title="🗑️ Mensaje Eliminado",
+        color=discord.Color.red(),
+        timestamp=datetime.now()
+    )
     embed.add_field(name="Autor", value=message.author.mention, inline=True)
     embed.add_field(name="ID Autor", value=message.author.id, inline=True)
     embed.add_field(name="Canal", value=message.channel.mention, inline=True)
+    
     if message.content:
         embed.add_field(name="Contenido", value=message.content[:1000] if len(message.content) > 1000 else message.content, inline=False)
     else:
         embed.add_field(name="Contenido", value="*Sin contenido de texto*", inline=False)
+    
     if message.attachments:
         archivos = "\n".join([f"- {archivo.filename}" for archivo in message.attachments[:5]])
         embed.add_field(name="📎 Archivos adjuntos", value=archivos, inline=False)
+    
     embed.set_footer(text=f"ID: {message.id}")
+    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
         print(f"❌ Error al enviar log de mensaje eliminado: {e}")
 
+# =============================================
+# EVENTO DE LOGS - MENSAJES EDITADOS
+# =============================================
 @bot.event
 async def on_message_edit(before, after):
-    if before.author.bot or before.content == after.content or not before.guild:
+    if before.author.bot or before.content == after.content:
         return
+    
+    if not before.guild:
+        return
+    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    embed = discord.Embed(title="✏️ Mensaje Editado", color=discord.Color.orange(), timestamp=datetime.now())
+    
+    embed = discord.Embed(
+        title="✏️ Mensaje Editado",
+        color=discord.Color.orange(),
+        timestamp=datetime.now()
+    )
     embed.add_field(name="Autor", value=before.author.mention, inline=True)
     embed.add_field(name="ID Autor", value=before.author.id, inline=True)
     embed.add_field(name="Canal", value=before.channel.mention, inline=True)
     embed.add_field(name="Antes", value=before.content[:500] if before.content else "*Vacío*", inline=False)
     embed.add_field(name="Después", value=after.content[:500] if after.content else "*Vacío*", inline=False)
     embed.set_footer(text=f"ID: {before.id}")
+    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
         print(f"❌ Error al enviar log de mensaje editado: {e}")
 
+# =============================================
+# EVENTO DE LOGS - BANEOS
+# =============================================
 @bot.event
 async def on_member_ban(guild, user):
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    embed = discord.Embed(title="🔨 Usuario Baneado", color=discord.Color.dark_red(), timestamp=datetime.now())
+    
+    embed = discord.Embed(
+        title="🔨 Usuario Baneado",
+        color=discord.Color.dark_red(),
+        timestamp=datetime.now()
+    )
     embed.add_field(name="Usuario", value=f"{user.name}#{user.discriminator}", inline=True)
     embed.add_field(name="ID", value=user.id, inline=True)
+    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
         print(f"❌ Error al enviar log de ban: {e}")
 
+# =============================================
+# EVENTO DE LOGS - DESBANEOS
+# =============================================
 @bot.event
 async def on_member_unban(guild, user):
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         return
-    embed = discord.Embed(title="✅ Usuario Desbaneado", color=discord.Color.green(), timestamp=datetime.now())
+    
+    embed = discord.Embed(
+        title="✅ Usuario Desbaneado",
+        color=discord.Color.green(),
+        timestamp=datetime.now()
+    )
     embed.add_field(name="Usuario", value=f"{user.name}#{user.discriminator}", inline=True)
     embed.add_field(name="ID", value=user.id, inline=True)
+    
     try:
         await canal_logs.send(embed=embed)
     except Exception as e:
         print(f"❌ Error al enviar log de unban: {e}")
 
+# =============================================
+# EVENTO ON_MESSAGE: MODERACIÓN + IA
+# =============================================
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
+    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -1357,21 +1426,26 @@ async def on_message(message):
             for mention in message.mentions:
                 if mention.id == bot.user.id:
                     contenido = contenido.replace(f'<@{mention.id}>', '').replace(f'<@!{mention.id}>', '').strip()
+            
             if not contenido:
                 await message.reply("❓ ¿Qué necesitas saber? Hazme una pregunta.")
                 return
+            
             thinking_message = await message.reply("🤔 Pensando...")
             respuesta = await consultar_groq(contenido)
+            
             if len(respuesta) > 1900:
                 respuesta = respuesta[:1900] + "..."
+            
             try:
                 await thinking_message.edit(content=respuesta)
             except Exception as e:
                 await thinking_message.edit(content=f"❌ Error al mostrar la respuesta: {e}")
+        
         await bot.process_commands(message)
         return
 
-    # SISTEMA DE MODERACIÓN AUTOMÁTICA
+    # Sistema de moderación automática
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -1391,6 +1465,7 @@ async def on_message(message):
             current_time = message.created_at.timestamp()
             spam_counter[user_id] = [t for t in spam_counter[user_id] if current_time - t < SPAM_TIME]
             spam_counter[user_id].append(current_time)
+            
             if len(spam_counter[user_id]) > SPAM_LIMIT:
                 razon = "Spam (más de 5 mensajes en 10 segundos)"
                 mensaje_borrado = True
@@ -1399,6 +1474,7 @@ async def on_message(message):
             try:
                 await message.delete()
                 await aplicar_warn(message.author, razon, message.channel)
+                
                 embed = discord.Embed(
                     title="⚠️ Moderación Automática",
                     description=f"**{message.author.mention}** tu mensaje ha sido eliminado por: **{razon}**",
@@ -1411,7 +1487,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS (resumidos)
+# SLASH COMMANDS
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1433,7 +1509,9 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             ephemeral=True
         )
         return
+    
     resultado = await ban_all_members(interaction.guild, interaction.user, razon)
+    
     if resultado['baneados'] == 0 and resultado['errores'] == 0:
         await interaction.response.send_message(
             f"ℹ️ No hay miembros disponibles para banear.\n"
@@ -1441,6 +1519,7 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             ephemeral=True
         )
         return
+    
     embed = discord.Embed(
         title="✅ BANEO MASIVO COMPLETADO",
         description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1449,17 +1528,21 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
                     f"**Razón:** {razon}",
         color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
     )
+    
     if resultado['omitidos']:
         omitidos_texto = "\n".join(resultado['omitidos'][:10])
         if len(resultado['omitidos']) > 10:
             omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
         embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
+    
     if resultado['errores_lista']:
         errores_texto = "\n".join(resultado['errores_lista'][:10])
         if len(resultado['errores_lista']) > 10:
             errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
         embed.add_field(name="Errores", value=errores_texto, inline=False)
+    
     await interaction.response.send_message(embed=embed)
+    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         log_embed = discord.Embed(
@@ -1471,14 +1554,19 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             timestamp=datetime.now()
         )
         await canal_logs.send(embed=log_embed)
+    
     logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
 
 @bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
-@discord.app_commands.describe(accion="Acción a realizar (add o remove)", usuario="Usuario a agregar o quitar de la blacklist")
+@discord.app_commands.describe(
+    accion="Acción a realizar (add o remove)",
+    usuario="Usuario a agregar o quitar de la blacklist"
+)
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario: discord.Member):
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     user_id = str(usuario.id)
+    
     if accion.lower() == 'add':
         if user_id not in blacklist.get('usuarios', []):
             if 'usuarios' not in blacklist:
@@ -1526,35 +1614,55 @@ async def slash_poll(
         opciones.append(opcion4)
     if opcion5:
         opciones.append(opcion5)
+    
     emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+    
     embed = discord.Embed(
         title="📊 Encuesta",
         description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
         color=discord.Color.orange()
     )
     embed.set_footer(text=f"Encuesta creada por {interaction.user.name} | {datetime.now().strftime('%d/%m/%Y')}")
+    
     await interaction.response.send_message(embed=embed)
     mensaje = await interaction.original_response()
+    
     for i in range(min(len(opciones), 10)):
         await mensaje.add_reaction(emojis[i])
+    
     logger.info(f"📊 Encuesta creada por {interaction.user.name}: {pregunta}")
 
 @bot.tree.command(name="remind", description="⏰ Crear un recordatorio")
-@discord.app_commands.describe(tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)", recordatorio="Lo que quieres recordar")
+@discord.app_commands.describe(
+    tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)",
+    recordatorio="Lo que quieres recordar"
+)
 async def slash_remind(interaction: discord.Interaction, tiempo: str, recordatorio: str):
     match = re.match(r'(\d+)([smhd])', tiempo.lower())
     if not match:
         await interaction.response.send_message("❌ Formato inválido. Usa: 10s, 5m, 1h, 1d", ephemeral=True)
         return
+    
     cantidad, unidad = match.groups()
     cantidad = int(cantidad)
-    segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
+    
+    segundos = {
+        's': 1,
+        'm': 60,
+        'h': 3600,
+        'd': 86400
+    }.get(unidad, 0)
+    
     total_segundos = cantidad * segundos
+    
     if total_segundos > 86400 * 7:
         await interaction.response.send_message("❌ No puedes programar recordatorios por más de 7 días.", ephemeral=True)
         return
+    
     await interaction.response.send_message(f"✅ Recordatorio programado para {cantidad}{unidad}: {recordatorio}")
+    
     await asyncio.sleep(total_segundos)
+    
     canal = interaction.channel
     await canal.send(f"⏰ {interaction.user.mention}, recordatorio: **{recordatorio}**")
     logger.info(f"⏰ Recordatorio de {interaction.user.name}: {recordatorio}")
@@ -1562,11 +1670,16 @@ async def slash_remind(interaction: discord.Interaction, tiempo: str, recordator
 @bot.tree.command(name="serverstats", description="📊 Ver estadísticas del servidor")
 async def slash_serverstats(interaction: discord.Interaction):
     guild = interaction.guild
+    
     total_members = guild.member_count
     humanos = sum(1 for m in guild.members if not m.bot)
     bots = total_members - humanos
     online = sum(1 for m in guild.members if m.status != discord.Status.offline)
-    embed = discord.Embed(title=f"📊 Estadísticas de {guild.name}", color=discord.Color.blue())
+    
+    embed = discord.Embed(
+        title=f"📊 Estadísticas de {guild.name}",
+        color=discord.Color.blue()
+    )
     if guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
     embed.add_field(name="👥 Total", value=total_members, inline=True)
@@ -1577,6 +1690,7 @@ async def slash_serverstats(interaction: discord.Interaction):
     embed.add_field(name="👑 Dueño", value=guild.owner.mention, inline=True)
     embed.add_field(name="📊 Canales", value=len(guild.channels), inline=True)
     embed.add_field(name="🎭 Roles", value=len(guild.roles), inline=True)
+    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="userinfo", description="ℹ️ Ver información de un usuario")
@@ -1584,6 +1698,7 @@ async def slash_serverstats(interaction: discord.Interaction):
 async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Member = None):
     if miembro is None:
         miembro = interaction.user
+    
     embed = discord.Embed(
         title=f"ℹ️ Información de {miembro.name}",
         color=miembro.color if miembro.color != discord.Color.default() else discord.Color.orange()
@@ -1595,6 +1710,7 @@ async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Memb
     embed.add_field(name="📥 Ingreso", value=miembro.joined_at.strftime("%d/%m/%Y %H:%M") if miembro.joined_at else "N/A", inline=True)
     embed.add_field(name="🎭 Roles", value=len(miembro.roles) - 1, inline=True)
     embed.add_field(name="🟢 Estado", value=miembro.status, inline=True)
+    
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente")
@@ -1614,9 +1730,11 @@ async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.
     if rol is None:
         await interaction.response.send_message(f"❌ El rol con ID {AUTO_ROLE_ID} no existe", ephemeral=True)
         return
+    
     if rol in miembro.roles:
         await interaction.response.send_message(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}", ephemeral=True)
         return
+    
     try:
         await miembro.add_roles(rol)
         await interaction.response.send_message(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
@@ -1631,55 +1749,6 @@ async def slash_clear_spam(interaction: discord.Interaction):
     spam_counter.clear()
     await interaction.response.send_message("✅ Contador de spam limpiado.")
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
-
-# =============================================
-# COMANDOS CON PREFIJO
-# =============================================
-@bot.command(name='panel')
-async def panel_cmd(ctx):
-    if not tiene_rol_permitido(ctx.author):
-        await ctx.send("❌ No tienes permiso para usar este comando.")
-        return
-    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
-
-@bot.command(name='clear_spam')
-@commands.has_permissions(administrator=True)
-async def clear_spam_cmd(ctx):
-    global spam_counter
-    spam_counter.clear()
-    await ctx.send("✅ Contador de spam limpiado.")
-
-@bot.command(name='set_autorole')
-@commands.has_permissions(administrator=True)
-async def set_autorole_cmd(ctx, rol_id: int = None):
-    global AUTO_ROLE_ID
-    if rol_id is None:
-        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
-        return
-    rol = ctx.guild.get_role(rol_id)
-    if rol is None:
-        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
-        return
-    AUTO_ROLE_ID = rol_id
-    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
-
-@bot.command(name='add_autorole')
-@commands.has_permissions(administrator=True)
-async def add_autorole_cmd(ctx, miembro: discord.Member = None):
-    if miembro is None:
-        miembro = ctx.author
-    rol = ctx.guild.get_role(AUTO_ROLE_ID)
-    if rol is None:
-        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
-        return
-    if rol in miembro.roles:
-        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
-        return
-    try:
-        await miembro.add_roles(rol)
-        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
-    except Exception as e:
-        await ctx.send(f"❌ Error al asignar el rol: {e}")
 
 # =============================================
 # INICIAR EL BOT
