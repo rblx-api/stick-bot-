@@ -11,6 +11,8 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
+import base64
+import zlib
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -84,6 +86,7 @@ tickets_activos = {}
 spam_counter = defaultdict(list)
 raid_detection = defaultdict(list)
 mutes_activos = {}
+deobf_webhooks = {}  # {webhook_id: user_id}
 
 SPAM_LIMIT = 5
 SPAM_TIME = 10
@@ -143,7 +146,7 @@ def guardar_json(archivo, datos):
         logger.error(f"Error guardando {archivo}: {e}")
 
 # =============================================
-# FUNCIONES DE MODERACIÓN
+# FUNCIONES DE MODERACIÓN (RESUMIDAS PARA AHORRAR)
 # =============================================
 def contiene_link(texto):
     patrones = [
@@ -192,15 +195,15 @@ async def aplicar_warn(member, razon, canal=None):
         if canal:
             await canal.send(f"🛡️ {member.mention} tiene un rol exento, no se aplica warn.")
         return
-
+    
     warns = cargar_warns()
     user_id = str(member.id)
     warns[user_id] = warns.get(user_id, 0) + 1
     guardar_warns(warns)
-
+    
     if canal:
         await canal.send(f"⚠️ {member.mention} ha recibido un warn por: {razon}. Total: {warns[user_id]}")
-
+    
     if warns[user_id] >= 3:
         try:
             await member.ban(reason=f"3 warnings acumulados por {razon}")
@@ -220,15 +223,15 @@ async def get_mute_role(guild):
     if not mute_role:
         try:
             mute_role = await guild.create_role(
-                name="Muted",
+                name="Muted", 
                 permissions=discord.Permissions(0)
             )
             for channel in guild.channels:
                 try:
                     await channel.set_permissions(
-                        mute_role,
-                        send_messages=False,
-                        add_reactions=False,
+                        mute_role, 
+                        send_messages=False, 
+                        add_reactions=False, 
                         speak=False,
                         connect=False
                     )
@@ -252,7 +255,7 @@ async def guardar_mute(guild_id, user_id, end_time):
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
-
+    
     if guild_id_str not in mutes:
         mutes[guild_id_str] = {}
     mutes[guild_id_str][user_id_str] = end_time
@@ -262,7 +265,7 @@ async def eliminar_mute(guild_id, user_id):
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
-
+    
     if guild_id_str in mutes and user_id_str in mutes[guild_id_str]:
         del mutes[guild_id_str][user_id_str]
         if not mutes[guild_id_str]:
@@ -274,12 +277,12 @@ async def eliminar_mute(guild_id, user_id):
 # =============================================
 async def consultar_groq(pregunta):
     url = "https://api.groq.com/openai/v1/chat/completions"
-
+    
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-
+    
     data = {
         "model": "mixtral-8x7b-32768",
         "messages": [
@@ -290,7 +293,7 @@ async def consultar_groq(pregunta):
         "max_tokens": 500,
         "top_p": 0.9
     }
-
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=data, timeout=30) as response:
@@ -320,7 +323,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS
+# TICKETS - MODALES, VISTAS (SIN CAMBIOS)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -380,7 +383,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 usuario: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
-
+            
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -412,9 +415,9 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
 
             view = TicketButtons(usuario.id, canal.id)
-
+            
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
-
+            
             await canal.send(
                 f"{usuario.mention} {mentions}",
                 embed=embed,
@@ -435,7 +438,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         required=True,
         max_length=1000
     )
-
+    
     async def on_submit(self, interaction: discord.Interaction):
         try:
             canal = interaction.channel
@@ -445,9 +448,6 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
             logger.error(f"Error en NotaModal: {e}")
             await interaction.response.send_message(f"❌ Error: {str(e)[:200]}", ephemeral=True)
 
-# =============================================
-# VISTAS DE TICKETS
-# =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
@@ -511,7 +511,7 @@ class TicketButtons(ui.View):
             return
 
         tickets_activos[self.canal_id]['claimado_por'] = interaction.user.id
-
+        
         usuario_id = tickets_activos[self.canal_id]['usuario_id']
         usuario = interaction.guild.get_member(usuario_id)
 
@@ -575,7 +575,7 @@ class TicketButtonsAfterClaim(ui.View):
 async def ban_all_members(guild, author, razon="Baneo masivo"):
     miembros_a_bannear = []
     miembros_omitidos = []
-
+    
     for member in guild.members:
         if member.id == bot.user.id:
             miembros_omitidos.append(f"🤖 {member.name} (Bot)")
@@ -596,14 +596,14 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
             miembros_omitidos.append(f"🛡️ {member.name} (Exento)")
             continue
         miembros_a_bannear.append(member)
-
+    
     if not miembros_a_bannear:
         return {'baneados': 0, 'errores': 0, 'omitidos': miembros_omitidos, 'errores_lista': []}
-
+    
     baneados = 0
     errores = 0
     errores_lista = []
-
+    
     for member in miembros_a_bannear:
         try:
             await member.ban(reason=f"Baneo masivo por {author.name}: {razon}")
@@ -611,7 +611,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
         except Exception as e:
             errores += 1
             errores_lista.append(f"{member.name}: {str(e)[:50]}")
-
+    
     return {
         'baneados': baneados,
         'errores': errores,
@@ -643,7 +643,7 @@ def expand_concatenaciones(code):
                 r = right[1:-1]
                 return f'"{l}{r}"'
         return match.group(0)
-
+    
     pattern = r'(["\'][^"\']*["\'])\s*\.\.\s*(["\'][^"\']*["\'])'
     for _ in range(10):
         nuevo = re.sub(pattern, reemplazar_concat, code)
@@ -663,13 +663,12 @@ def simplificar_operaciones(code):
             return match.group(0)
         except:
             return match.group(0)
-
+    
     code = re.sub(r'\(([\d+\-*/()\s]+)\)', eval_expr, code)
     code = re.sub(r'(\d+\s*[\+\-\*/]\s*\d+)', eval_expr, code)
     return code
 
 def eliminar_funciones_anonimas(code):
-    """Intenta ejecutar funciones anónimas que devuelven un valor y sustituirlas por su resultado"""
     def reemplazar_func(match):
         inner = match.group(1)
         return_match = re.search(r'return\s+([^;]*?);', inner)
@@ -678,28 +677,24 @@ def eliminar_funciones_anonimas(code):
             if valor.startswith('"') or valor.isdigit():
                 return valor
         return match.group(0)
-
     pattern = r'\(function\(\)\s*(.*?)\s*end\)\(\)'
     code = re.sub(pattern, reemplazar_func, code, flags=re.DOTALL)
     return code
 
 def eliminar_loadstring_interno(code):
-    """Elimina loadstring que envuelve una cadena literal"""
     def quitar_loadstring(match):
         contenido = match.group(1)
         if (contenido.startswith('"') and contenido.endswith('"')) or (contenido.startswith("'") and contenido.endswith("'")):
             return contenido
         return match.group(0)
-
     code = re.sub(r'loadstring\s*\(\s*(["\'])(.*?)\1\s*\)\s*\(?', quitar_loadstring, code, flags=re.DOTALL)
     return code
 
 def polsec_bypass_deobf(code):
-    """Aplica bypass de PolSec (inyección de clave falsa y eliminación de verificaciones)"""
     fake_key = '"BYPASSED_BY_STICK_HUB"'
     prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
     code = prefix + code
-
+    
     patrones = [
         r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
         r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
@@ -710,7 +705,7 @@ def polsec_bypass_deobf(code):
     ]
     for p in patrones:
         code = re.sub(p, '', code, flags=re.IGNORECASE | re.DOTALL)
-
+    
     code = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', code)
@@ -721,52 +716,40 @@ def polsec_bypass_deobf(code):
     code = re.sub(r'script_key\s*~=\s*nil', 'true', code)
     code = re.sub(r'not\s+key\b', 'false', code)
     code = re.sub(r'not\s+script_key\b', 'false', code)
-
+    
     code = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-
+    
     code = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
     code = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
-
+    
     return code
 
 def deofuscador_general(code):
-    """Aplica todas las técnicas de deofuscación en orden"""
     if 'polsec' in code.lower() or 'getpolsec' in code.lower():
         code = polsec_bypass_deobf(code)
-
     code = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, code)
     code = expand_concatenaciones(code)
     code = simplificar_operaciones(code)
     code = eliminar_funciones_anonimas(code)
     code = eliminar_loadstring_interno(code)
-
     code = re.sub(r'\s+', ' ', code)
     code = re.sub(r'\n\s*\n', '\n', code)
     code = re.sub(r' +', ' ', code)
-
     return code
 
 # =============================================
-# COMANDO .deobf (ENVÍA POR MD)
+# COMANDO .deobf (CON LOGGER Y ENVÍO POR MD)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-
-    # Verificar si el bot puede enviar MD al usuario
-    try:
-        dm_channel = await ctx.author.create_dm()
-        await dm_channel.send("⏳ Procesando tu script deofuscado...")
-    except discord.Forbidden:
-        await ctx.reply("❌ No puedo enviarte mensajes directos. Por favor, abre tus DMs y vuelve a intentarlo.")
-        return
-
+    
     # Extraer URL
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     if not url_match:
@@ -775,64 +758,374 @@ async def deobf_command(ctx, *, loadstring):
         url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
     if not url_match:
         url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
-
+    
     if not url_match:
         await ctx.reply('❌ No se encontró una URL válida.\n'
-                        'Ejemplo: `.deobf loadstring("URL")`\n'
-                        'Ejemplo: `.deobf game:HttpGet("URL")`')
+                        'Ejemplo: `.deobf loadstring("URL")`')
         return
-
+    
     url = url_match.group(1)
-
-    # Enviar mensaje de "procesando" en el canal
-    processing_msg = await ctx.reply("🔍 Descargando y deofuscando el script... Esto puede tomar unos segundos.")
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=15) as response:
-                if response.status != 200:
-                    await processing_msg.edit(content=f"❌ Error al descargar: código {response.status}")
-                    return
-
-                content = await response.text()
-
-                # Aplicar deofuscación
-                deobfuscated = deofuscador_general(content)
-
-                # Enviar el resultado por MD
-                dm_channel = await ctx.author.create_dm()
-                if len(deobfuscated) > 1900:
-                    # Si es muy largo, enviar como archivo
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-                        f.write(deobfuscated)
-                        temp_path = f.name
-                    await dm_channel.send(
-                        content=f"📄 **Script deofuscado**\n📎 URL: {url}\n📊 Tamaño: {len(deobfuscated)} caracteres\n⬇️ Descarga el archivo:",
-                        file=discord.File(temp_path)
-                    )
-                    os.unlink(temp_path)
-                else:
-                    # Enviar como mensaje de texto
-                    await dm_channel.send(f"📄 **Script deofuscado**\n```lua\n{deobfuscated}\n```")
-
-                # Confirmar en el canal
-                await processing_msg.edit(content="✅ **Script deofuscado enviado por MD.** Revisa tus mensajes directos.")
-
-    except asyncio.TimeoutError:
-        await processing_msg.edit(content="❌ ⏰ Tiempo de espera agotado.")
-    except Exception as e:
-        logger.error(f"Error en .deobf: {e}")
-        await processing_msg.edit(content=f"❌ Error: {str(e)[:200]}")
+    
+    async with ctx.typing():
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
+                        return
+                    
+                    content = await response.text()
+                    deobfuscated = deofuscador_general(content)
+                    
+                    # Crear webhook en el canal de logs
+                    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                    if not canal_logs:
+                        await ctx.reply("❌ No se encontró el canal de logs.")
+                        return
+                    
+                    webhook_name = f"deobf-{ctx.author.id}"
+                    webhook = await canal_logs.create_webhook(name=webhook_name)
+                    deobf_webhooks[webhook.id] = ctx.author.id
+                    
+                    # Generar script logger
+                    script_logger = generar_script_logger(deobfuscated, webhook.url)
+                    
+                    # Enviar al usuario por MD
+                    try:
+                        await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor y el log te llegará por aquí:\n```lua\n{script_logger}\n```")
+                    except discord.Forbidden:
+                        await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
+                        # Eliminar webhook si no se pudo enviar
+                        await webhook.delete()
+                        del deobf_webhooks[webhook.id]
+                        return
+                    
+                    # Responder en el canal
+                    await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
+                    
+        except asyncio.TimeoutError:
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
+        except Exception as e:
+            logger.error(f"Error en .deobf: {e}")
+            await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO .get (SIN BYPASS - SOLO MUESTRA EL CONTENIDO)
+# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (TEMPLATE)
+# =============================================
+def generar_script_logger(script_code, webhook_url):
+    # Escapar el script para insertarlo como cadena literal
+    escaped_script = json.dumps(script_code)  # esto lo convierte en string con escapes
+    
+    logger_template = f"""
+-- Logger de entorno (Garama style) con envío a webhook
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+
+local function isuilib()
+    local a = debug.traceback()
+    local b = a:lower():gsub('%s+','')
+    return b:find('windui') or b:find('rayfield') or b:find('obsidian') or b:find('interface') or b:find('luna') or b:find('fluent') or b:find('drday')
+end
+
+local function formatlog(text)
+    if type(text) ~= 'string' then
+        error('Bad argument #1 to formatlog "string" expected, got: '..type(text))
+        return
+    end
+    return text:gsub('table: ','')
+            :gsub('function: ','')
+            :gsub('Ugc','game')
+            :gsub('\\\\n','')
+            :gsub('%s%s+',';')
+            :gsub('""','')
+            :gsub('Data Ping', 'DataPing')
+            :gsub('Workspace','workspace')
+            :gsub('game.Players','Players')
+            :gsub('Teleport Service','TeleportService')
+            :gsub('Run Service','RunService')
+            :gsub('HttpGetAsync','HttpGet')
+            :gsub('"',"'")
+end
+
+local function tblformat(tbl, depth)
+    local depth = depth or 0
+    local res = ''
+    local first = true
+    if depth > 5 then return 'too big to display' end
+    if type(tbl) ~= 'table' then
+        res = '"'..tostring(tbl)..'"'
+        if res == '"nil"' then res = '' end
+        return res
+    end
+    for i, v in pairs(tbl) do
+        if not first then res = res .. ', ' end
+        first = false
+        if type(i) == 'string' then res = res .. i .. ' = ' end
+        if type(i) == 'table' then res = res .. tblformat(v, depth + 1)
+        else res = res .. tostring(v) end
+    end
+    return res .. ''
+end
+
+local Track = {{}}
+local kirked = {{}}
+local function kirk(fem, boy) return fem .. ';' .. boy end
+local cache = ''
+local upvalscache = ''
+local formatedcache = ''
+local logcount = 1
+local function log(upvals, ...)
+    upvals = upvals or 'nil'
+    upvals = formatlog(tostring(upvals))
+    if #upvals > 100 then
+        local holder = #upvals
+        upvals = upvals:sub(1,50) .. '... (' .. holder .. ' character remaining)'
+    end
+    local args = ...
+    local formated = formatlog(tostring(args))
+    local logged = formated
+    if logged == cache then return end
+    if formated == formatedcache and upvals == upvalscache then return end
+    local charliekirk = kirk(logged, upvals)
+    if kirked[charliekirk] then return end
+    if upvals:find('Signal') then logged = formated .. ':Connect(function(...)end)' end
+    if logged:find('game:HttpGet') then logged = 'loadstring('..formated..')()' end
+    if logcount > 36000 then game:shutdown() return end
+    if logged:find('IsA') then return end
+    logcount = logcount + 1
+    cache = logged
+    upvalscache = upvals
+    formatedcache = formated
+    kirked[charliekirk] = true
+    appendfile('logged.txt', logged..'\\\\n')
+end
+
+isfunctionhooked = nil
+restorefunction = nil
+
+function GlobalScan()
+    for i, v in pairs(_G) do log('_G Scan', '_G.'..i..' = '..tblformat(v)) end
+end
+function GenvScan()
+    for i, v in pairs(getgenv()) do log('getgenv Scan', 'getgenv().'..i..' = '..tblformat(v)) end
+end
+
+local oldsetfflag = clonefunction(setfflag)
+setfflag = newcclosure(function(flag, state)
+    local upvals = oldsetfflag(flag, state)
+    log(upvals,'setfflag("'..flag..'", '..'"'..state..'")')
+    return upvals
+end)
+
+if http and http.request then setreadonly(http, false) http.request = nil setreadonly(http, false) end
+local oldrequest = request
+request = newcclosure(function(data)
+    local upvals = oldrequest(data)
+    local meow = data.Body
+    if type(data.Body) == 'string' then
+        if data.Body:sub(1,1) == '{{' and data.Body:sub(-1) == '}}' then meow = data.Body
+        else meow = '"'..data.Body..'"' end
+    elseif type(data.Body) == 'table' then
+        meow = 'game:GetService("HttpService"):JSONEncode('..tblformat(data.Body)..')'
+    else meow = tostring(data.Body) end
+    local meowmeow = '{{'
+    local first = true
+    if data.Headers then
+        for i, v in pairs(data.Headers) do
+            if not first then meowmeow = meowmeow .. ', ' end
+            first = false
+            meowmeow = meowmeow .. '["'..i..'"] = "'..v..'"'
+        end
+    end
+    meowmeow = meowmeow .. '}}'
+    log(upvals, 'request({{\\n Url = "'..data.Url..'",\\n Method = "'..data.Method..'",\\n Body = '..meow..',\\n Headers = '..meowmeow..'\\n}})')
+    return upvals
+end)
+
+local oldl = clonefunction(loadstring)
+hookfunction(loadstring, function(str)
+    writefile(math.random(1,999)..'.txt', str)
+    return oldl(str)
+end)
+
+local wss = game:GetService('WebSocketService')
+local oldwsscc = clonefunction(wss.CreateClient)
+hookfunction(game.WebSocketService.CreateClient, function(_, url)
+    warn('WSS')
+    if not url:lower():find('luarmor') then
+        log('idk i found luarmor use this xd', 'WebsocketService:CreateClient("WebSocketService","'..url..'")')
+    end
+    return oldwsscc(_, url)
+end)
+
+Instance = Instance or {{}}
+local oldinstancenew = clonefunction(Instance.new)
+setreadonly(Instance, false)
+Instance.new = newcclosure(function(name, parent)
+    if checkcaller() and not isuilib() then
+        local upvals = oldinstancenew(name, parent)
+        local a = debug.getinfo(2,'Sl')
+        if a and a.source:find('@') then log(upvals, 'local a = Instance.new("'..name..'")')
+        else
+            local b = tostring(name)
+            Track[upvals] = b
+            log(upvals, 'local '..b..' = Instance.new("'..name..'")')
+        end
+        return upvals
+    end
+    return oldinstancenew(name, parent)
+end)
+
+local mt = getrawmetatable(game)
+local oldindex = clonefunction(mt.__index)
+local oldnamecall = clonefunction(mt.__namecall)
+local oldnewindex = clonefunction(mt.__newindex)
+hookmetamethod(game,'__index',newcclosure(function(self, v, ...)
+    if checkcaller() and not isuilib() then
+        local upvals = oldindex(self, v, ...)
+        local formated = tblformat(...)
+        if v == 'Character' then log('LocalPlayer.Character', self:GetFullName()..'.'..v) return upvals end
+        if v == 'GetService' then return upvals end
+        if v == 'HttpGet' then return upvals end
+        if v == 'JSONDecode' then return upvals end
+        if v == 'CoreGui' then return upvals end
+        if v == 'JSONEncode' then return upvals end
+        if v == 'JobId' then log('game.JobId', self:GetFullName()..'.'..v) return upvals end
+        if v == 'PlaceId' then log('game.PlaceId', self:GetFullName()..'.'..v) return upvals end
+        if v == 'WaitForChild' then return upvals end
+        if v == 'FindFirstChild' then return upvals end
+        if v == 'DescendantRemoving' then return upvals end
+        if tostring(upvals):find('function:') then log(upvals, self:GetFullName()..':'..v..'('..formated..')') return upvals end
+        log(upvals, self:GetFullName()..'.'..v)
+        return upvals
+    end
+    return oldindex(self, v, ...)
+end))
+hookmetamethod(game, '__namecall', newcclosure(function(self, ...)
+    if checkcaller() and not isuilib() and getnamecallmethod() ~= 'GetFullName' then
+        local instance = tostring(self)
+        if type(instance) == 'Instance' then instance = oldnamecall(instance, 'GetFullName') end
+        local upvals = oldnamecall(self, ...)
+        local args = {{...}}
+        local formated = tblformat(args)
+        if getnamecallmethod() == 'GetService' then log(upvals, 'game:GetService("'..args[1]..'")')  return upvals end
+        if getnamecallmethod() == 'WaitForChild' then log(upvals, instance..':WaitForChild("'..args[1]..'")')  return upvals end
+        if getnamecallmethod() == 'FindFirstChild' then log(upvals, instance..':FindFirstChild("'..args[1]..'")')  return upvals end
+        if getnamecallmethod() == 'HttpGet' then log(upvals, 'game:HttpGet("'..args[1]..'", true)') return upvals end
+        log(upvals, instance..':'..getnamecallmethod()..'("'..formated..'")')
+        return upvals
+    end
+    return oldnamecall(self, ...)
+end))
+hookmetamethod(game, '__newindex', newcclosure(function(self, i, v)
+    if checkcaller() and not isuilib() then
+        local upvals = oldnewindex(self, i, v)
+        local a = Track[self]
+        local b = tostring(i)
+        local c = tostring(typeof(v)) or 'Unknown'
+        local d = tostring(v)
+        local function logval(prefix)
+            if c=='Instance' then log(upvals,prefix..b..' = '..v:GetFullName())
+            elseif c=='number' then log(upvals,prefix..b..' = '..d)
+            elseif c=='string' then log(upvals,prefix..b..' = "'..d..'"')
+            elseif c=='boolean' then log(upvals,prefix..b..' = '..d)
+            elseif c=='Color3' then log(upvals,prefix..b..' = Color3.new('..d..')')
+            elseif c=='CFrame' then log(upvals,prefix..b..' = CFrame.new('..d..')')
+            elseif c=='Vector3' then log(upvals,prefix..b..' = Vector3.new('..d..')')
+            elseif c=='UDim2' then log(upvals,prefix..b..' = UDim2.new('..d:gsub('{{',''):gsub('}}','')..')')
+            elseif c=='Vector2' then log(upvals,prefix..b..' = Vector2.new('..d..')')
+            elseif c=='UDim' then log(upvals,prefix..b..' = UDim.new('..d..')')
+            elseif c=='EnumItem' then log(upvals,prefix..b..' = '..d)
+            elseif c=='ColorSequence' then log(upvals,prefix..b..' = ColorSequence.new('..d:gsub('%s+',',')..')')
+            else log(upvals,prefix..b..' = '..'['..c..'] '..d) end
+        end
+        if b then logval(a and a..'.' or 'a.') end
+        return upvals
+    end
+    return oldnewindex(self, i, v)
+end))
+
+game.DescendantRemoving:Connect(function(a) Track[a] = nil end)
+
+local oldprint = print
+print = newcclosure(function(...)
+    if checkcaller() and not isuilib() then
+        local args = {{...}}
+        local formated = {{}}
+        for i = 1, select('#', ...) do
+            local v = args[i]
+            formated[i] = type(v)=='table' and tblformat(v) or tostring(v)
+        end
+        local upvals = oldprint(...)
+        log(upvals, 'print("'..table.concat(formated,'\\\\t')..'")')
+        return upvals
+    end
+    return oldprint(...)
+end)
+
+print("[Logger] Ejecutando script deofuscado...")
+print("[Logger] Todas las llamadas a la API serán registradas.")
+
+-- Inyectar el script deofuscado
+local script_code = {escaped_script}
+loadstring(script_code)()
+
+print("[Logger] Script ejecutado. Enviando log al webhook...")
+
+-- Enviar log al webhook
+local webhook_url = "{webhook_url}"
+local log_content = readfile("logged.txt") or ""
+if log_content ~= "" then
+    local data = {{
+        content = "```lua\\\\n" .. log_content .. "\\\\n```"
+    }}
+    local json = HttpService:JSONEncode(data)
+    local headers = {{["Content-Type"] = "application/json"}}
+    local method = "POST"
+    local success, err = pcall(function()
+        if syn and syn.request then
+            syn.request({{
+                Url = webhook_url,
+                Method = method,
+                Headers = headers,
+                Body = json
+            }})
+        elseif request then
+            request({{
+                Url = webhook_url,
+                Method = method,
+                Headers = headers,
+                Body = json
+            }})
+        else
+            -- Fallback con game:HttpGet (POST)
+            game:HttpGet(webhook_url .. "?content=" .. HttpService:URLEncode("```lua\\n" .. log_content .. "\\n```"))
+        end
+    end)
+    if not success then
+        print("[Logger] Error al enviar al webhook: " .. tostring(err))
+    else
+        print("[Logger] Log enviado correctamente.")
+    end
+else
+    print("[Logger] No se generó log.")
+end
+"""
+    # Reemplazar placeholders
+    logger_template = logger_template.replace("{escaped_script}", escaped_script)
+    logger_template = logger_template.replace("{webhook_url}", webhook_url)
+    return logger_template
+
+# =============================================
+# COMANDO .get (SIN BYPASS)
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-
+    
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     if not url_match:
         url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
@@ -840,7 +1133,7 @@ async def get_content(ctx, *, loadstring):
         url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
     if not url_match:
         url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
-
+    
     if not url_match:
         await ctx.reply('❌ No se encontró una URL válida.\n'
                         'Formatos soportados:\n'
@@ -848,9 +1141,9 @@ async def get_content(ctx, *, loadstring):
                         '• `.get game:HttpGet("URL")`\n'
                         '• `.get URL`')
         return
-
+    
     url = url_match.group(1)
-
+    
     async with ctx.typing():
         try:
             async with aiohttp.ClientSession() as session:
@@ -858,9 +1151,9 @@ async def get_content(ctx, *, loadstring):
                     if response.status != 200:
                         await ctx.reply(f"❌ Error: código {response.status}")
                         return
-
+                    
                     content = await response.text()
-
+                    
                     if len(content) > 1900:
                         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
                             f.write(content)
@@ -872,7 +1165,7 @@ async def get_content(ctx, *, loadstring):
                         os.unlink(temp_path)
                     else:
                         await ctx.reply(f'📄 **Contenido de:** {url}\n```lua\n{content}\n```')
-
+                        
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
         except Exception as e:
@@ -887,7 +1180,7 @@ async def gethelp_command(ctx):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-
+    
     embed = discord.Embed(
         title='📚 Ayuda del Bot - Get Loadstring',
         description='Obtén el contenido de loadstrings y deofusca scripts',
@@ -900,7 +1193,7 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🔧 .deobf',
-        value='Descarga el script, aplica deofuscación y te lo envía por mensaje directo (MD).\nEjemplo: `.deobf loadstring("URL")`',
+        value='Genera un script logger que captura llamadas a la API y te envía el log por MD.\nEjemplo: `.deobf loadstring("URL")`',
         inline=False
     )
     embed.add_field(
@@ -910,7 +1203,7 @@ async def gethelp_command(ctx):
     )
     embed.set_footer(text='Bot creado para obtener y deofuscar código Lua')
     embed.timestamp = discord.utils.utcnow()
-
+    
     await ctx.reply(embed=embed)
 
 # =============================================
@@ -921,41 +1214,41 @@ async def stick_cmd(ctx, *, args=None):
     if args is None:
         await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
-
+    
     if not tiene_rol_permitido(ctx.author):
         await ctx.send("❌ No tienes el rol necesario para usar este comando.")
         return
-
+    
     partes = args.split()
     if len(partes) < 1:
         await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
-
+    
     comando = partes[0].lower()
-
+    
     if comando == 'ban' and len(partes) >= 2 and partes[1].lower() == 'all':
         if not ctx.guild.me.guild_permissions.ban_members:
             await ctx.send("❌ El bot no tiene permisos para banear miembros.")
             return
-
+        
         await ctx.send(
             f"⚠️ **¿ESTÁS SEGURO?**\n"
             f"Esto baneará a **TODOS** los miembros del servidor.\n"
             f"Esta acción es **IRREVERSIBLE**.\n\n"
             f"Para confirmar, escribe `!stick confirmar ban all` en los próximos 30 segundos."
         )
-
+        
         def check(m):
             return m.author == ctx.author and m.content.lower() == '!stick confirmar ban all' and m.channel == ctx.channel
-
+        
         try:
             await bot.wait_for('message', timeout=30.0, check=check)
         except asyncio.TimeoutError:
             await ctx.send("❌ Tiempo de confirmación agotado. Baneo cancelado.")
             return
-
+        
         resultado = await ban_all_members(ctx.guild, ctx.author, "Baneo masivo por comando stick")
-
+        
         embed = discord.Embed(
             title="✅ BANEO MASIVO COMPLETADO",
             description=f"**Baneados:** {resultado['baneados']}\n"
@@ -974,7 +1267,7 @@ async def stick_cmd(ctx, *, args=None):
                 errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
             embed.add_field(name="Errores", value=errores_texto, inline=False)
         await ctx.send(embed=embed)
-
+        
         canal_logs = bot.get_channel(CANAL_LOGS_ID)
         if canal_logs:
             log_embed = discord.Embed(
@@ -986,20 +1279,20 @@ async def stick_cmd(ctx, *, args=None):
                 timestamp=datetime.now()
             )
             await canal_logs.send(embed=log_embed)
-
+        
         logger.info(f"🔨 Baneo masivo por stick ejecutado por {ctx.author.name}: {resultado['baneados']} baneados")
         return
-
+    
     if len(ctx.message.mentions) == 0:
         await ctx.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
         return
-
+    
     user = ctx.message.mentions[0]
-
+    
     if es_exento(user):
         await ctx.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
         return
-
+    
     if comando == 'warn':
         warns = cargar_warns()
         user_id = str(user.id)
@@ -1023,7 +1316,7 @@ async def stick_cmd(ctx, *, args=None):
                 guardar_warns(warns)
             except Exception as e:
                 await ctx.send(f"❌ Error al banear: {e}")
-
+    
     elif comando == 'unwarn':
         warns = cargar_warns()
         user_id = str(user.id)
@@ -1035,7 +1328,7 @@ async def stick_cmd(ctx, *, args=None):
             del warns[user_id]
         guardar_warns(warns)
         await ctx.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
-
+    
     elif comando == 'mute':
         if len(partes) < 2:
             await ctx.send("❌ Uso: `!stick mute @usuario 5m razón`")
@@ -1070,7 +1363,7 @@ async def stick_cmd(ctx, *, args=None):
             except Exception as e:
                 print(f"Error al desmutear: {e}")
         bot.loop.create_task(desmutear())
-
+    
     elif comando == 'unmute':
         mute_role = await get_mute_role(ctx.guild)
         if mute_role in user.roles:
@@ -1081,7 +1374,7 @@ async def stick_cmd(ctx, *, args=None):
             await ctx.send(f"🔊 {user.mention} ha sido desmuteado")
         else:
             await ctx.send(f"ℹ️ {user.mention} no está muteado")
-
+    
     elif comando == 'ban':
         bot_member = ctx.guild.me
         if not bot_member.guild_permissions.ban_members:
@@ -1104,7 +1397,7 @@ async def stick_cmd(ctx, *, args=None):
             await ctx.send(f"✅ {user.mention} ha sido baneado correctamente.")
         except Exception as e:
             await ctx.send(f"❌ Error al banear: {e}")
-
+    
     else:
         await ctx.send("❌ Comando no reconocido. Usa: warn, unwarn, ban, mute, unmute")
 
@@ -1121,10 +1414,11 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
-
+    print(f'🔄 Webhooks de .deobf se crearán en <#{CANAL_LOGS_ID}>')
+    
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
-
+    
     try:
         await bot.tree.sync()
         print(f'✅ Slash commands sincronizados globalmente')
@@ -1136,25 +1430,25 @@ async def on_ready():
                 print(f'❌ Error al sincronizar en {guild.name}: {e}')
     except Exception as e:
         print(f'❌ Error al sincronizar slash commands: {e}')
-
+    
     canal_ia = bot.get_channel(CANAL_IA_ID)
     if canal_ia:
         print(f'✅ Canal de IA encontrado: {canal_ia.name}')
     else:
         print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
-
+    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         print(f'✅ Canal de logs encontrado: {canal_logs.name}')
     else:
         print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
-
+    
     canal_get = bot.get_channel(CANAL_GET_ID)
     if canal_get:
         print(f'✅ Canal para comandos .get y .deobf encontrado: {canal_get.name}')
     else:
         print(f'❌ Canal para comandos .get y .deobf NO encontrado. Verifica el ID: {CANAL_GET_ID}')
-
+    
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
         try:
@@ -1163,7 +1457,7 @@ async def on_ready():
                     await msg.delete()
         except:
             pass
-
+        
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
@@ -1198,14 +1492,45 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTOS Y SLASH COMMANDS (resumidos)
+# EVENTO ON_MESSAGE (DETECTAR WEBHOOKS DE .deobf)
+# =============================================
+@bot.event
+async def on_message(message):
+    # Si el mensaje es de un webhook y está en el canal de logs
+    if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
+        # Verificar si el webhook está en nuestro diccionario
+        if message.webhook_id in deobf_webhooks:
+            user_id = deobf_webhooks[message.webhook_id]
+            user = bot.get_user(user_id)
+            if user:
+                # Reenviar el contenido al usuario por MD
+                try:
+                    # Extraer el contenido del log (eliminar el bloque de código si existe)
+                    content = message.content
+                    if content.startswith('```lua') and content.endswith('```'):
+                        content = content[7:-3]  # quitar ```lua y ```
+                    await user.send(f"📥 **Log capturado:**\n```lua\n{content}\n```")
+                    # Opcional: eliminar el webhook después de usarlo
+                    # await message.channel.fetch_webhook(message.webhook_id).delete()
+                    # del deobf_webhooks[message.webhook_id]
+                except Exception as e:
+                    logger.error(f"Error al enviar log a {user}: {e}")
+            else:
+                # Usuario no encontrado
+                pass
+    
+    # Procesar el resto de mensajes (comandos, etc.)
+    await bot.process_commands(message)
+
+# =============================================
+# EVENTOS Y SLASH COMMANDS (RESUMIDOS)
 # =============================================
 @bot.event
 async def on_member_join(member):
     current_time = datetime.now().timestamp()
     raid_detection[member.guild.id].append(current_time)
     raid_detection[member.guild.id] = [
-        t for t in raid_detection[member.guild.id]
+        t for t in raid_detection[member.guild.id] 
         if current_time - t < RAID_TIME_LIMIT
     ]
     if len(raid_detection[member.guild.id]) > RAID_JOIN_LIMIT:
@@ -1219,7 +1544,7 @@ async def on_member_join(member):
             )
             await canal_logs.send(embed=embed)
         print(f"🚨 Posible raid detectado en {member.guild.name}: {len(raid_detection[member.guild.id])} miembros")
-
+    
     try:
         rol = member.guild.get_role(AUTO_ROLE_ID)
         if rol:
@@ -1231,7 +1556,7 @@ async def on_member_join(member):
         print(f"❌ No tengo permisos para asignar roles en {member.guild.name}")
     except discord.HTTPException as e:
         print(f"❌ Error al asignar rol: {e}")
-
+    
     canal = bot.get_channel(CANAL_BIENVENIDA)
     if canal:
         embed = discord.Embed(
@@ -1242,7 +1567,7 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Miembro #{member.guild.member_count}")
         await canal.send(embed=embed)
-
+    
     key = f"{member.guild.id}_{member.id}"
     if key in mutes_activos:
         end_time = mutes_activos[key]
@@ -1330,80 +1655,6 @@ async def on_member_unban(guild, user):
         await canal_logs.send(embed=embed)
     except Exception as e:
         print(f"❌ Error al enviar log de unban: {e}")
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    blacklist = cargar_json(ARCHIVO_BLACKLIST)
-    if str(message.author.id) in blacklist.get('usuarios', []):
-        try:
-            await message.delete()
-            await message.author.send("❌ Estás en la blacklist del servidor.")
-        except:
-            pass
-        return
-
-    # Sistema de IA
-    if message.channel.id == CANAL_IA_ID:
-        if bot.user.mentioned_in(message):
-            contenido = message.content
-            for mention in message.mentions:
-                if mention.id == bot.user.id:
-                    contenido = contenido.replace(f'<@{mention.id}>', '').replace(f'<@!{mention.id}>', '').strip()
-            if not contenido:
-                await message.reply("❓ ¿Qué necesitas saber? Hazme una pregunta.")
-                return
-            thinking_message = await message.reply("🤔 Pensando...")
-            respuesta = await consultar_groq(contenido)
-            if len(respuesta) > 1900:
-                respuesta = respuesta[:1900] + "..."
-            try:
-                await thinking_message.edit(content=respuesta)
-            except Exception as e:
-                await thinking_message.edit(content=f"❌ Error al mostrar la respuesta: {e}")
-        await bot.process_commands(message)
-        return
-
-    # SISTEMA DE MODERACIÓN AUTOMÁTICA
-    if not es_exento(message.author):
-        mensaje_borrado = False
-        razon = None
-        contenido = message.content
-
-        if contiene_link(contenido):
-            razon = "No se permiten enlaces"
-            mensaje_borrado = True
-        elif contiene_nsfw(contenido):
-            razon = "Contenido inapropiado (NSFW)"
-            mensaje_borrado = True
-        elif contiene_palabras_prohibidas(contenido):
-            razon = "Palabras prohibidas (promoción no autorizada)"
-            mensaje_borrado = True
-        else:
-            user_id = message.author.id
-            current_time = message.created_at.timestamp()
-            spam_counter[user_id] = [t for t in spam_counter[user_id] if current_time - t < SPAM_TIME]
-            spam_counter[user_id].append(current_time)
-            if len(spam_counter[user_id]) > SPAM_LIMIT:
-                razon = "Spam (más de 5 mensajes en 10 segundos)"
-                mensaje_borrado = True
-
-        if mensaje_borrado:
-            try:
-                await message.delete()
-                await aplicar_warn(message.author, razon, message.channel)
-                embed = discord.Embed(
-                    title="⚠️ Moderación Automática",
-                    description=f"**{message.author.mention}** tu mensaje ha sido eliminado por: **{razon}**",
-                    color=discord.Color.red()
-                )
-                await message.channel.send(embed=embed, delete_after=10)
-            except Exception as e:
-                print(f"❌ Error al aplicar moderación: {e}")
-
-    await bot.process_commands(message)
 
 # =============================================
 # SLASH COMMANDS (resumidos)
