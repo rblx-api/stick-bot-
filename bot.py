@@ -11,6 +11,8 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
+import base64
+import zlib
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -321,7 +323,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# TICKETS - MODALES, VISTAS (sin cambios)
+# TICKETS - MODALES, VISTAS (SIN CAMBIOS)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -729,12 +731,14 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# GENERAR SCRIPT LOGGER (CORREGIDO)
+# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (CORREGIDA)
 # =============================================
 def generar_script_logger(script_code, webhook_url):
-    # Escapamos el script para que sea una cadena literal Lua válida
-    # Reemplazamos ]]- para que no cierre el bloque [[ ... ]]
-    escaped = script_code.replace(']]', '] ]')
+    # Escapar el script para que sea seguro como cadena literal en Lua
+    # Reemplazar \ por \\, " por \", etc.
+    escaped = script_code.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    # También escapamos ]] para que no cierre el bloque
+    escaped = escaped.replace(']]', '] ]')
     
     logger_template = f"""
 -- Logger de entorno (Garama style) con envío a webhook
@@ -742,6 +746,7 @@ def generar_script_logger(script_code, webhook_url):
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local function isuilib()
     local a = debug.traceback()
@@ -985,20 +990,28 @@ print = newcclosure(function(...)
     return oldprint(...)
 end)
 
+print("[Logger] Iniciando...")
 print("[Logger] Ejecutando script deofuscado...")
 
--- Inyectar el script deofuscado usando [[ ... ]]
-local script_code = [[
-{escaped_script}
-]]
+-- Inyectar el script deofuscado como cadena literal escapada
+local script_code = "{escaped_script}"
 local success, err = pcall(function()
-    loadstring(script_code)()
+    local fn = loadstring(script_code)
+    if fn then
+        fn()
+    else
+        error("loadstring falló, el script puede tener errores de sintaxis")
+    end
 end)
+
 if not success then
     print("[Logger] Error al ejecutar el script: " .. tostring(err))
 else
     print("[Logger] Script ejecutado correctamente.")
 end
+
+print("[Logger] Esperando 3 segundos para capturar logs...")
+wait(3)
 
 print("[Logger] Enviando log al webhook...")
 
@@ -1011,19 +1024,18 @@ if log_content ~= "" then
     }}
     local json = HttpService:JSONEncode(data)
     local headers = {{["Content-Type"] = "application/json"}}
-    local method = "POST"
     local success, err = pcall(function()
         if syn and syn.request then
             syn.request({{
                 Url = webhook_url,
-                Method = method,
+                Method = "POST",
                 Headers = headers,
                 Body = json
             }})
         elseif request then
             request({{
                 Url = webhook_url,
-                Method = method,
+                Method = "POST",
                 Headers = headers,
                 Body = json
             }})
@@ -1037,7 +1049,7 @@ if log_content ~= "" then
         print("[Logger] Log enviado correctamente.")
     end
 else
-    print("[Logger] No se generó log. Puede que el script no haya hecho llamadas a la API.")
+    print("[Logger] No se generó log. El script puede no haber hecho llamadas a la API.")
 end
 """
     logger_template = logger_template.replace("{escaped_script}", escaped)
@@ -1084,24 +1096,31 @@ async def deobf_command(ctx, *, loadstring):
                         await ctx.reply("❌ No se encontró el canal de logs.")
                         return
                     
+                    # Crear webhook
                     webhook_name = f"deobf-{ctx.author.id}"
-                    webhook = await canal_logs.create_webhook(name=webhook_name)
+                    try:
+                        webhook = await canal_logs.create_webhook(name=webhook_name)
+                    except Exception as e:
+                        await ctx.reply(f"❌ Error al crear webhook: {str(e)[:200]}")
+                        return
+                    
                     deobf_webhooks[webhook.id] = ctx.author.id
                     
                     script_logger = generar_script_logger(deobfuscated, webhook.url)
                     
+                    # Enviar al usuario por MD
                     try:
                         if len(script_logger) > 4000:
                             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
                                 f.write(script_logger)
                                 temp_path = f.name
                             await ctx.author.send(
-                                content="📄 **Script logger generado** (archivo adjunto)",
+                                content="📄 **Script logger generado** (archivo adjunto). Ejecútalo en tu executor.",
                                 file=discord.File(temp_path)
                             )
                             os.unlink(temp_path)
                         else:
-                            await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor y el log te llegará por aquí:\n```lua\n{script_logger}\n```")
+                            await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor:\n```lua\n{script_logger}\n```")
                     except discord.Forbidden:
                         await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
                         await webhook.delete()
@@ -1206,7 +1225,7 @@ async def gethelp_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDO STICK (resumido)
+# COMANDOS STICK
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
@@ -1495,6 +1514,7 @@ async def on_ready():
 # =============================================
 @bot.event
 async def on_message(message):
+    # Si el mensaje es de un webhook y está en el canal de logs
     if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
         if message.webhook_id in deobf_webhooks:
             user_id = deobf_webhooks[message.webhook_id]
@@ -1505,13 +1525,19 @@ async def on_message(message):
                     if content.startswith('```lua') and content.endswith('```'):
                         content = content[7:-3]
                     await user.send(f"📥 **Log capturado:**\n```lua\n{content}\n```")
+                    # Opcional: eliminar el webhook después de usarlo
+                    # try:
+                    #     await message.channel.fetch_webhook(message.webhook_id).delete()
+                    #     del deobf_webhooks[message.webhook_id]
+                    # except:
+                    #     pass
                 except Exception as e:
                     logger.error(f"Error al enviar log a {user}: {e}")
     
     await bot.process_commands(message)
 
 # =============================================
-# EVENTOS Y SLASH COMMANDS (resumidos)
+# EVENTOS Y SLASH COMMANDS (RESUMIDOS)
 # =============================================
 @bot.event
 async def on_member_join(member):
@@ -1645,7 +1671,7 @@ async def on_member_unban(guild, user):
         print(f"❌ Error al enviar log de unban: {e}")
 
 # =============================================
-# SLASH COMMANDS
+# SLASH COMMANDS (resumidos)
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1867,7 +1893,7 @@ async def slash_clear_spam(interaction: discord.Interaction):
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
 
 # =============================================
-# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
+# COMANDOS CON PREFIJO
 # =============================================
 @bot.command(name='panel')
 async def panel_cmd(ctx):
