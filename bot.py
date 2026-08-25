@@ -11,8 +11,6 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
-import base64
-import zlib
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -622,140 +620,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# FUNCIÓN DE BYPASS POLSEC (MEJORADA)
-# =============================================
-def polsec_bypass(content):
-    """
-    Función para eliminar protecciones de PolSec y limpiar ofuscación.
-    Inyecta una key falsa y reemplaza todas las verificaciones para que el script
-    se ejecute sin necesidad de key. También elimina anti-bypass como pcall, xpcall,
-    debug.getinfo, y verificaciones de ejecutores.
-    """
-    cleaned = content
-    
-    # 1. Detectar si es PolSec
-    is_polsec = False
-    if 'polsec' in content.lower() or 'getpolsec' in content.lower():
-        is_polsec = True
-        logger.info("🔍 Script de PolSec detectado, aplicando bypass para ejecución sin key")
-    
-    # 2. INYECTAR UNA KEY FALSA VÁLIDA AL INICIO Y FINAL
-    fake_key = '"BYPASSED_BY_STICK_HUB"'
-    prefix = f'-- BYPASSED BY STICK HUB\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
-    suffix = f'\n\n-- BYPASS END\nscript_key = {fake_key}\nkey = {fake_key}'
-    
-    cleaned = prefix + cleaned + suffix
-    
-    # 3. ELIMINAR VERIFICACIONES DE KEY (if key ~= ... then error(...) end)
-    patrones_key = [
-        r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?error[^{]*?end',
-        r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?error[^{]*?end',
-        r'if\s+not\s+key\s+then[^{]*?error[^{]*?end',
-        r'if\s+not\s+script_key\s+then[^{]*?error[^{]*?end',
-        r'if\s+key\s*==\s*nil\s+then[^{]*?error[^{]*?end',
-        r'if\s+script_key\s*==\s*nil\s+then[^{]*?error[^{]*?end',
-        # Patrones con pcall (muy común en PolSec)
-        r'pcall\s*\([^)]*key[^)]*\)\s*\)',
-        r'xpcall\s*\([^)]*key[^)]*\)\s*\)',
-    ]
-    for patron in patrones_key:
-        cleaned = re.sub(patron, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    
-    # 4. REEMPLAZAR COMPARACIONES DE KEY CON true/false
-    cleaned = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
-    cleaned = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
-    cleaned = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
-    cleaned = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
-    cleaned = re.sub(r'key\s*==\s*nil', 'false', cleaned)
-    cleaned = re.sub(r'script_key\s*==\s*nil', 'false', cleaned)
-    cleaned = re.sub(r'key\s*~=\s*nil', 'true', cleaned)
-    cleaned = re.sub(r'script_key\s*~=\s*nil', 'true', cleaned)
-    cleaned = re.sub(r'not\s+key\b', 'false', cleaned)
-    cleaned = re.sub(r'not\s+script_key\b', 'false', cleaned)
-    
-    # 5. REEMPLAZAR FUNCIONES DE VERIFICACIÓN
-    cleaned = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    
-    # 6. ELIMINAR TRIAL y FREE si aparecen como strings
-    cleaned = re.sub(r'["\']TRIAL["\']', '""', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'["\']FREE["\']', '""', cleaned, flags=re.IGNORECASE)
-    
-    # 7. ELIMINAR ANTI-BYPASS AVANZADO
-    # Eliminar pcall y xpcall que envuelven verificaciones
-    cleaned = re.sub(r'pcall\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'xpcall\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Eliminar debug.getinfo (usado para detectar entornos)
-    cleaned = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
-    
-    # Eliminar verificaciones de entorno (getfenv, setfenv)
-    cleaned = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s*\([^)]*setfenv[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Eliminar verificaciones de ejecutores (syn, krnl, etc.)
-    cleaned = re.sub(r'if\s+syn\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s+krnl\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s+getgenv\s*\([^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r'if\s+getrenv\s*\([^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Reemplazar verificaciones de entorno por true
-    cleaned = re.sub(r'getfenv\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'setfenv\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'getgenv\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'getrenv\s*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'syn\s*\.', 'true.', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'krnl\s*\.', 'true.', cleaned, flags=re.IGNORECASE)
-    
-    # Eliminar loadstring ofuscado interno
-    cleaned = re.sub(r'loadstring\s*\([^)]*\)\s*\(', '(', cleaned, flags=re.IGNORECASE)
-    
-    # 8. SI ES POLSEC, DESOFUSCAR BÁSICO
-    if is_polsec:
-        # Remover variables ofuscadas (local a = 0x123)
-        cleaned = re.sub(r'local\s+[a-zA-Z0-9_]+\s*=\s*[0-9a-fA-Fx]+;?', '', cleaned)
-        cleaned = re.sub(r'_G\[["\'][^"\']*["\']\]\s*=', '', cleaned)
-        
-        # Intentar desofuscar funciones anónimas
-        ofuscated = re.findall(r'\(function\(\)[^{]*?return[^;]*?end\)\(\)', cleaned, re.DOTALL)
-        for func in ofuscated:
-            inner = re.search(r'return\s+([^;]*?);', func)
-            if inner:
-                cleaned = cleaned.replace(func, inner.group(1))
-        
-        # Intentar desofuscar base64
-        base64_pattern = re.findall(r'\(loadstring\(\(["\'][^"\']*["\']\)\)', cleaned)
-        for pattern in base64_pattern:
-            try:
-                decoded = base64.b64decode(pattern).decode('utf-8')
-                cleaned = cleaned.replace(pattern, decoded)
-            except:
-                pass
-        
-        # Intentar desofuscar zlib
-        zlib_pattern = re.findall(r'\(loadstring\(zlib\.decompress\(["\'][^"\']*["\']\)\)', cleaned)
-        for pattern in zlib_pattern:
-            try:
-                decoded = zlib.decompress(base64.b64decode(pattern)).decode('utf-8')
-                cleaned = cleaned.replace(pattern, decoded)
-            except:
-                pass
-        
-        # Limpiar saltos de línea excesivos
-        cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
-    
-    # 9. Si el contenido después de limpiar es muy pequeño, usar el original (pero con la key inyectada)
-    if len(cleaned) < 200 and is_polsec:
-        logger.warning("⚠️ El script no se pudo desofuscar completamente, se devuelve con key inyectada")
-        return prefix + content + suffix
-    
-    return cleaned.strip()
-
-# =============================================
-# COMANDO .get (CON SOPORTE PARA POLSEC BYPASS)
+# COMANDO .get (SIN BYPASS - SOLO EXTRAE LA URL Y MUESTRA EL CONTENIDO)
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
@@ -763,31 +628,30 @@ async def get_content(ctx, *, loadstring):
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
-    # Limpiar el texto: eliminar líneas de script_key y otras asignaciones
-    cleaned_text = loadstring
-    
-    cleaned_text = re.sub(r'script_key\s*=\s*["\'][^"\']*["\']\s*', '', cleaned_text)
-    cleaned_text = re.sub(r'key\s*=\s*["\'][^"\']*["\']\s*', '', cleaned_text)
-    cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)
-    
     # Buscar URL en diferentes formatos
     url_match = None
     
-    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", cleaned_text)
+    # Formato 1: loadstring("URL")
+    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
+    
+    # Formato 2: game:HttpGet("URL")
     if not url_match:
-        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", cleaned_text)
+        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
+    
+    # Formato 3: game:HttpGet(("URL")) (con doble paréntesis)
     if not url_match:
-        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", cleaned_text)
+        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
+    
+    # Formato 4: URL directa (solo la URL)
     if not url_match:
-        url_match = re.search(r"(https?://[^\s'\"]+)", cleaned_text)
+        url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
     
     if not url_match:
         await ctx.reply('❌ No se encontró una URL válida.\n'
                         'Formatos soportados:\n'
                         '• `.get loadstring("URL")`\n'
                         '• `.get game:HttpGet("URL")`\n'
-                        '• `.get URL`\n'
-                        '• `.get script_key = "KEY" loadstring("URL")`')
+                        '• `.get URL`')
         return
     
     url = url_match.group(1)
@@ -809,25 +673,13 @@ async def get_content(ctx, *, loadstring):
                     
                     content = await response.text()
                     
-                    # APLICAR BYPASS POLSEC
-                    bypassed_content = polsec_bypass(content)
-                    
-                    # Determinar si se aplicó el bypass
-                    is_polsec = 'polsec' in content.lower() or 'getpolsec' in content.lower()
-                    bypass_applied = is_polsec and len(bypassed_content) > 100
-                    
-                    bypass_msg = "🛡️ **PolSec Bypass aplicado - Código listo para ejecutar sin key** ✅" if bypass_applied else ""
-                    if is_polsec and not bypass_applied:
-                        bypass_msg = "⚠️ **No se pudo desofuscar completamente. Se inyectó key falsa para evitar error.**"
-                    
-                    # Si el contenido es muy largo, enviar como archivo
-                    if len(bypassed_content) > 1900:
+                    if len(content) > 1900:
                         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
-                            temp_file.write(bypassed_content)
+                            temp_file.write(content)
                             temp_path = temp_file.name
                         
                         await ctx.reply(
-                            content=f'📄 **Script listo para ejecutar sin key**\n📎 **URL:** {url}\n📊 **Tamaño:** {len(bypassed_content)} caracteres\n{bypass_msg}\n⬇️ Descarga el archivo completo:',
+                            content=f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n⬇️ Descarga el archivo completo:',
                             file=discord.File(temp_path)
                         )
                         
@@ -836,7 +688,7 @@ async def get_content(ctx, *, loadstring):
                         except:
                             pass
                     else:
-                        await ctx.reply(f'📄 **Script listo para ejecutar sin key** - {url}\n{bypass_msg}\n📊 **Tamaño:** {len(bypassed_content)} caracteres\n```lua\n{bypassed_content}\n```')
+                        await ctx.reply(f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n```lua\n{content}\n```')
                         
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
@@ -857,7 +709,7 @@ async def gethelp_command(ctx):
     
     embed = discord.Embed(
         title='📚 Ayuda del Bot - Get Loadstring',
-        description='Obtén el contenido de cualquier loadstring de Lua con bypass automático de PolSec',
+        description='Obtén el contenido de cualquier loadstring de Lua',
         color=discord.Color.orange()
     )
     embed.add_field(
@@ -865,19 +717,7 @@ async def gethelp_command(ctx):
         value='Obtiene el contenido de un loadstring\n'
               'Ejemplo: `.get loadstring("URL")`\n'
               'Ejemplo: `.get game:HttpGet("URL")`\n'
-              'Ejemplo: `.get script_key = "TRIAL" loadstring("URL")`\n'
-              'Ejemplo: `.get script_key = "KEY" loadstring("URL")`',
-        inline=False
-    )
-    embed.add_field(
-        name='🛡️ PolSec Bypass - Ejecución sin key',
-        value='• Detecta automáticamente scripts de PolSec\n'
-              '• Inyecta una key falsa válida\n'
-              '• Elimina verificaciones de key (TRIAL o KEY)\n'
-              '• Reemplaza comparaciones con true/false\n'
-              '• Elimina anti-bypass (pcall, xpcall, debug, getfenv)\n'
-              '• Remueve ofuscación básica (base64, zlib, funciones anónimas)\n'
-              '• El script modificado se ejecuta sin key',
+              'Ejemplo: `.get URL`',
         inline=False
     )
     embed.add_field(
@@ -896,7 +736,7 @@ async def gethelp_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK (resumidos - igual que antes)
+# COMANDOS STICK
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
@@ -915,6 +755,7 @@ async def stick_cmd(ctx, *, args=None):
     
     comando = partes[0].lower()
     
+    # !stick ban all
     if comando == 'ban' and len(partes) >= 2 and partes[1].lower() == 'all':
         if not ctx.guild.me.guild_permissions.ban_members:
             await ctx.send("❌ El bot no tiene permisos para banear miembros.")
@@ -972,6 +813,7 @@ async def stick_cmd(ctx, *, args=None):
         logger.info(f"🔨 Baneo masivo por stick ejecutado por {ctx.author.name}: {resultado['baneados']} baneados")
         return
     
+    # Comandos que requieren mención
     if len(ctx.message.mentions) == 0:
         await ctx.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
         return
@@ -1103,7 +945,6 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comando .get funcionará en el canal: <#{CANAL_GET_ID}>')
-    print(f'🛡️ PolSec Bypass activado - Eliminación de anti-bypass y ejecución sin key')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -1181,7 +1022,7 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTOS Y SLASH COMMANDS (resumidos para no repetir)
+# EVENTOS Y SLASH COMMANDS (resumidos)
 # =============================================
 @bot.event
 async def on_member_join(member):
@@ -1328,6 +1169,7 @@ async def on_message(message):
             pass
         return
 
+    # Sistema de IA
     if message.channel.id == CANAL_IA_ID:
         if bot.user.mentioned_in(message):
             contenido = message.content
@@ -1348,6 +1190,7 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
+    # SISTEMA DE MODERACIÓN AUTOMÁTICA
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -1387,7 +1230,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS (resumidos)
+# SLASH COMMANDS
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
