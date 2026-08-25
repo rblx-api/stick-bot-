@@ -11,6 +11,8 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
+import ast
+import math
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -60,7 +62,7 @@ CATEGORIA_TICKETS_ID = 1536466416851488828
 CANAL_SUGERENCIAS_ID = 1536466416851488828
 CANAL_LOGS_ID = 1517328591732477962
 
-# CANAL PARA EL COMANDO .get
+# CANAL PARA LOS COMANDOS .get y .deobf
 CANAL_GET_ID = 1541804529694285975
 
 # Archivos de datos
@@ -620,7 +622,215 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# COMANDO .get (SIN BYPASS - SOLO EXTRAE LA URL Y MUESTRA EL CONTENIDO)
+# FUNCIONES DE DEOFUSCACIÓN
+# =============================================
+
+def evaluar_string_char(match):
+    """Convierte string.char(...) en una cadena literal"""
+    args = match.group(1)
+    try:
+        # Extraer números separados por coma
+        numeros = [int(n.strip()) for n in args.split(',')]
+        return '"' + ''.join(chr(n) for n in numeros) + '"'
+    except:
+        return match.group(0)
+
+def expand_concatenaciones(code):
+    """Intenta expandir concatenaciones de cadenas con .. en una sola cadena"""
+    # Esto es muy básico, solo para casos simples: "a" .. "b" -> "ab"
+    def reemplazar_concat(match):
+        left = match.group(1)
+        right = match.group(2)
+        # Si ambos son strings literales, concatenarlos
+        if (left.startswith('"') and left.endswith('"')) or (left.startswith("'") and left.endswith("'")):
+            if (right.startswith('"') and right.endswith('"')) or (right.startswith("'") and right.endswith("'")):
+                # Quitar comillas y concatenar
+                l = left[1:-1]
+                r = right[1:-1]
+                return f'"{l}{r}"'
+        # Si no, dejar igual
+        return match.group(0)
+    
+    # Buscar patrones de concatenación: "string" .. "string"
+    pattern = r'(["\'][^"\']*["\'])\s*\.\.\s*(["\'][^"\']*["\'])'
+    for _ in range(10):  # Iterar varias veces para concatenaciones múltiples
+        nuevo = re.sub(pattern, reemplazar_concat, code)
+        if nuevo == code:
+            break
+        code = nuevo
+    return code
+
+def simplificar_operaciones(code):
+    """Simplifica operaciones matemáticas básicas (ej: 1+2 -> 3)"""
+    # Reemplazar operaciones simples entre números
+    def eval_expr(match):
+        expr = match.group(1)
+        try:
+            # Evaluar solo si es seguro (solo números y operadores básicos)
+            if re.match(r'^[\d+\-*/()\s]+$', expr):
+                result = eval(expr)
+                return str(result)
+            return match.group(0)
+        except:
+            return match.group(0)
+    
+    # Buscar expresiones matemáticas entre paréntesis o simples
+    pattern = r'\(([\d+\-*/()\s]+)\)'
+    code = re.sub(pattern, eval_expr, code)
+    # También buscar operaciones sin paréntesis
+    pattern = r'(\d+\s*[\+\-\*/]\s*\d+)'
+    code = re.sub(pattern, eval_expr, code)
+    return code
+
+def eliminar_cargas_internas(code):
+    """Intenta eliminar loadstring internos que cargan código ya descargado"""
+    # Buscar patrones como loadstring(game:HttpGet(...))() y reemplazar por el código
+    # Esto es peligroso porque podría causar recursión, pero para scripts de PolSec
+    # a menudo el código ofuscado está dentro de un loadstring.
+    # Aquí solo eliminamos los loadstring que envuelven todo el script.
+    # Si el script comienza con loadstring(game:HttpGet(...))(), lo extraemos.
+    # Pero para simplificar, dejamos que el usuario vea el código ofuscado sin loadstring.
+    # En su lugar, eliminamos la llamada a loadstring si el contenido es una cadena literal.
+    # Mejor no hacer nada aquí para evitar errores.
+    return code
+
+def polsec_bypass_deobf(content):
+    """Aplica bypass de PolSec (inyección de clave falsa, eliminación de verificaciones)"""
+    cleaned = content
+    fake_key = '"BYPASSED_BY_STICK_HUB"'
+    
+    # Inyectar key falsa al inicio
+    prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
+    cleaned = prefix + cleaned
+    
+    # Eliminar verificaciones de key
+    patrones = [
+        r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
+        r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
+        r'if\s+not\s+key\s+then[^{]*?end',
+        r'if\s+not\s+script_key\s+then[^{]*?end',
+        r'if\s+key\s*==\s*nil\s+then[^{]*?end',
+        r'if\s+script_key\s*==\s*nil\s+then[^{]*?end',
+    ]
+    for p in patrones:
+        cleaned = re.sub(p, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Reemplazar comparaciones
+    cleaned = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
+    cleaned = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', cleaned)
+    cleaned = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
+    cleaned = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', cleaned)
+    cleaned = re.sub(r'key\s*==\s*nil', 'false', cleaned)
+    cleaned = re.sub(r'script_key\s*==\s*nil', 'false', cleaned)
+    cleaned = re.sub(r'key\s*~=\s*nil', 'true', cleaned)
+    cleaned = re.sub(r'script_key\s*~=\s*nil', 'true', cleaned)
+    cleaned = re.sub(r'not\s+key\b', 'false', cleaned)
+    cleaned = re.sub(r'not\s+script_key\b', 'false', cleaned)
+    
+    # Reemplazar funciones de verificación
+    cleaned = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', cleaned, flags=re.IGNORECASE)
+    
+    # Eliminar anti-bypass
+    cleaned = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', cleaned, flags=re.IGNORECASE)
+    
+    return cleaned
+
+def deofuscador_general(code):
+    """Aplica múltiples técnicas de deofuscación"""
+    # 1. Bypass PolSec si se detecta
+    if 'polsec' in code.lower() or 'getpolsec' in code.lower():
+        code = polsec_bypass_deobf(code)
+    
+    # 2. Reemplazar string.char(...) por cadenas literales
+    code = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, code)
+    
+    # 3. Expandir concatenaciones
+    code = expand_concatenaciones(code)
+    
+    # 4. Simplificar operaciones matemáticas
+    code = simplificar_operaciones(code)
+    
+    # 5. Eliminar loadstring redundante (si es una cadena literal)
+    def quitar_loadstring(match):
+        contenido = match.group(1)
+        # Si el contenido es una cadena literal, devolverla sin loadstring
+        if (contenido.startswith('"') and contenido.endswith('"')) or (contenido.startswith("'") and contenido.endswith("'")):
+            return contenido
+        return match.group(0)
+    
+    # Buscar loadstring("...") y quitar el loadstring si es literal
+    code = re.sub(r'loadstring\s*\(\s*(["\'])(.*?)\1\s*\)\s*\(?', quitar_loadstring, code, flags=re.DOTALL)
+    
+    # 6. Eliminar paréntesis y espacios extra
+    code = re.sub(r'\s+', ' ', code)
+    code = re.sub(r'\n\s*\n', '\n', code)
+    
+    return code
+
+# =============================================
+# COMANDO .deobf (DEOFUSCAR SCRIPT)
+# =============================================
+@bot.command(name='deobf')
+async def deobf_command(ctx, *, loadstring):
+    if ctx.channel.id != CANAL_GET_ID:
+        await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
+        return
+    
+    # Extraer URL
+    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
+    
+    if not url_match:
+        await ctx.reply('❌ No se encontró una URL válida.\n'
+                        'Ejemplo: `.deobf loadstring("URL")`\n'
+                        'Ejemplo: `.deobf game:HttpGet("URL")`')
+        return
+    
+    url = url_match.group(1)
+    
+    async with ctx.typing():
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
+                        return
+                    
+                    content = await response.text()
+                    
+                    # Aplicar deofuscación
+                    deobfuscated = deofuscador_general(content)
+                    
+                    if len(deobfuscated) > 1900:
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+                            f.write(deobfuscated)
+                            temp_path = f.name
+                        await ctx.reply(
+                            content=f'📄 **Script deofuscado**\n📎 URL: {url}\n📊 Tamaño: {len(deobfuscated)} caracteres\n⬇️ Descarga el archivo:',
+                            file=discord.File(temp_path)
+                        )
+                        os.unlink(temp_path)
+                    else:
+                        await ctx.reply(f'📄 **Script deofuscado**\n```lua\n{deobfuscated}\n```')
+                        
+        except asyncio.TimeoutError:
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
+        except Exception as e:
+            logger.error(f"Error en .deobf: {e}")
+            await ctx.reply(f'❌ Error: {str(e)[:200]}')
+
+# =============================================
+# COMANDO .get (SIN BYPASS - SOLO MUESTRA EL CONTENIDO)
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
@@ -628,21 +838,11 @@ async def get_content(ctx, *, loadstring):
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
-    # Buscar URL en diferentes formatos
-    url_match = None
-    
-    # Formato 1: loadstring("URL")
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
-    
-    # Formato 2: game:HttpGet("URL")
     if not url_match:
         url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
-    
-    # Formato 3: game:HttpGet(("URL")) (con doble paréntesis)
     if not url_match:
         url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
-    
-    # Formato 4: URL directa (solo la URL)
     if not url_match:
         url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
     
@@ -661,39 +861,25 @@ async def get_content(ctx, *, loadstring):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=15) as response:
                     if response.status != 200:
-                        error_msg = f'❌ Error: Código {response.status}'
-                        if response.status == 404:
-                            error_msg += ' - URL no encontrada'
-                        elif response.status == 403:
-                            error_msg += ' - Acceso denegado'
-                        elif response.status == 429:
-                            error_msg += ' - Demasiadas peticiones'
-                        await ctx.reply(error_msg)
+                        await ctx.reply(f"❌ Error: código {response.status}")
                         return
                     
                     content = await response.text()
                     
                     if len(content) > 1900:
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
-                            temp_file.write(content)
-                            temp_path = temp_file.name
-                        
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                            f.write(content)
+                            temp_path = f.name
                         await ctx.reply(
-                            content=f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n⬇️ Descarga el archivo completo:',
+                            content=f'📄 **Contenido de:** {url}\n📊 Tamaño: {len(content)} caracteres\n⬇️ Archivo:',
                             file=discord.File(temp_path)
                         )
-                        
-                        try:
-                            os.unlink(temp_path)
-                        except:
-                            pass
+                        os.unlink(temp_path)
                     else:
-                        await ctx.reply(f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n```lua\n{content}\n```')
+                        await ctx.reply(f'📄 **Contenido de:** {url}\n```lua\n{content}\n```')
                         
         except asyncio.TimeoutError:
-            await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
-        except aiohttp.ClientError as e:
-            await ctx.reply(f'❌ Error de conexión: {str(e)[:100]}')
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
         except Exception as e:
             logger.error(f"Error en .get: {e}")
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
@@ -709,34 +895,31 @@ async def gethelp_command(ctx):
     
     embed = discord.Embed(
         title='📚 Ayuda del Bot - Get Loadstring',
-        description='Obtén el contenido de cualquier loadstring de Lua',
+        description='Obtén el contenido de loadstrings y deofusca scripts',
         color=discord.Color.orange()
     )
     embed.add_field(
         name='🎯 .get',
-        value='Obtiene el contenido de un loadstring\n'
-              'Ejemplo: `.get loadstring("URL")`\n'
-              'Ejemplo: `.get game:HttpGet("URL")`\n'
-              'Ejemplo: `.get URL`',
+        value='Muestra el contenido del script sin modificar.\nEjemplo: `.get loadstring("URL")`',
+        inline=False
+    )
+    embed.add_field(
+        name='🔧 .deobf',
+        value='Descarga el script y aplica deofuscación (string.char, concatenaciones, bypass PolSec).\nEjemplo: `.deobf loadstring("URL")`',
         inline=False
     )
     embed.add_field(
         name='📝 .gethelp',
-        value='Muestra este mensaje de ayuda',
+        value='Muestra esta ayuda.',
         inline=False
     )
-    embed.add_field(
-        name='📊 Información',
-        value='• Máximo tamaño: 10MB\n• Archivos largos se envían como .txt\n• Soporte para cualquier URL pública',
-        inline=False
-    )
-    embed.set_footer(text='Bot creado para obtener código de loadstrings')
+    embed.set_footer(text='Bot creado para obtener y deofuscar código Lua')
     embed.timestamp = discord.utils.utcnow()
     
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK
+# COMANDOS STICK (resumidos)
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
@@ -755,7 +938,6 @@ async def stick_cmd(ctx, *, args=None):
     
     comando = partes[0].lower()
     
-    # !stick ban all
     if comando == 'ban' and len(partes) >= 2 and partes[1].lower() == 'all':
         if not ctx.guild.me.guild_permissions.ban_members:
             await ctx.send("❌ El bot no tiene permisos para banear miembros.")
@@ -813,7 +995,6 @@ async def stick_cmd(ctx, *, args=None):
         logger.info(f"🔨 Baneo masivo por stick ejecutado por {ctx.author.name}: {resultado['baneados']} baneados")
         return
     
-    # Comandos que requieren mención
     if len(ctx.message.mentions) == 0:
         await ctx.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
         return
@@ -944,7 +1125,7 @@ async def on_ready():
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
-    print(f'📥 Comando .get funcionará en el canal: <#{CANAL_GET_ID}>')
+    print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -975,9 +1156,9 @@ async def on_ready():
     
     canal_get = bot.get_channel(CANAL_GET_ID)
     if canal_get:
-        print(f'✅ Canal para .get encontrado: {canal_get.name}')
+        print(f'✅ Canal para comandos .get y .deobf encontrado: {canal_get.name}')
     else:
-        print(f'❌ Canal para .get NO encontrado. Verifica el ID: {CANAL_GET_ID}')
+        print(f'❌ Canal para comandos .get y .deobf NO encontrado. Verifica el ID: {CANAL_GET_ID}')
     
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
@@ -1230,7 +1411,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS
+# SLASH COMMANDS (resumidos)
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1452,7 +1633,7 @@ async def slash_clear_spam(interaction: discord.Interaction):
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
 
 # =============================================
-# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
+# COMANDOS CON PREFIJO
 # =============================================
 @bot.command(name='panel')
 async def panel_cmd(ctx):
