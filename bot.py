@@ -74,7 +74,7 @@ intents.members = True
 intents.guild_messages = True
 intents.guilds = True
 
-# Usamos dos prefijos: ! para comandos stick y . para get/help
+# Prefijos: ! para comandos stick, . para get/help
 bot = commands.Bot(command_prefix=['!', '.'], intents=intents)
 
 tickets_activos = {}
@@ -100,7 +100,6 @@ def tiene_rol_permitido(member):
 # FUNCIÓN PARA VERIFICAR SI ES EXENTO
 # =============================================
 def es_exento(member):
-    """Verifica si el miembro tiene alguno de los roles exentos de moderación"""
     for rol_id in ROLES_EXENTOS:
         if discord.utils.get(member.roles, id=rol_id):
             return True
@@ -183,7 +182,6 @@ def contiene_palabras_prohibidas(texto):
     return False
 
 async def aplicar_warn(member, razon, canal=None):
-    # Verificar si el miembro es exento (NO se aplica warn)
     if es_exento(member):
         if canal:
             await canal.send(f"🛡️ {member.mention} tiene un rol exento, no se aplica warn.")
@@ -366,7 +364,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             guild = interaction.guild
             usuario = self.usuario
 
-            # Verificar si el usuario ya tiene un ticket abierto
             for channel_id, data in tickets_activos.items():
                 if data['usuario_id'] == usuario.id and data['abierto']:
                     await interaction.followup.send("❌ Ya tienes un ticket abierto. Ciérralo antes de abrir otro.", ephemeral=True)
@@ -380,7 +377,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
             
-            # Agregar todos los roles permitidos al ticket
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -396,7 +392,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 'canal': canal
             }
 
-            # Diccionario de nombres para el embed
             nombres = {
                 "web": "🌐 Quiero hacer mi web",
                 "script": "💻 Quiero hacer mi propio script",
@@ -414,7 +409,6 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
 
             view = TicketButtons(usuario.id, canal.id)
             
-            # Mencionar todos los roles permitidos
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
             
             await canal.send(
@@ -448,36 +442,11 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(
-                label="Quiero hacer mi web",
-                value="web",
-                description="Solicita la creación de tu página web",
-                emoji="🌐"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer mi propio script",
-                value="script",
-                description="Solicita la creación de un script a medida",
-                emoji="💻"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer mi bot",
-                value="bot",
-                description="Solicita la creación de un bot personalizado",
-                emoji="🤖"
-            ),
-            discord.SelectOption(
-                label="Configurar comunidad de Discord",
-                value="comunidad",
-                description="Solicita la configuración de tu comunidad en Discord",
-                emoji="🏘️"
-            ),
-            discord.SelectOption(
-                label="Quiero hacer alianza",
-                value="alianza",
-                description="Solicita una alianza con tu servidor",
-                emoji="🤝"
-            ),
+            discord.SelectOption(label="Quiero hacer mi web", value="web", description="Solicita la creación de tu página web", emoji="🌐"),
+            discord.SelectOption(label="Quiero hacer mi propio script", value="script", description="Solicita la creación de un script a medida", emoji="💻"),
+            discord.SelectOption(label="Quiero hacer mi bot", value="bot", description="Solicita la creación de un bot personalizado", emoji="🤖"),
+            discord.SelectOption(label="Configurar comunidad de Discord", value="comunidad", description="Solicita la configuración de tu comunidad en Discord", emoji="🏘️"),
+            discord.SelectOption(label="Quiero hacer alianza", value="alianza", description="Solicita una alianza con tu servidor", emoji="🤝"),
         ]
         super().__init__(placeholder="🔸 Elige una opción...", min_values=1, max_values=1, options=options)
 
@@ -660,6 +629,7 @@ async def get_content(ctx, *, loadstring):
     
     url = url_match.group(1)
     
+    # Mostrar "El bot está escribiendo..."
     async with ctx.typing():
         try:
             async with aiohttp.ClientSession() as session:
@@ -690,7 +660,7 @@ async def get_content(ctx, *, loadstring):
                     else:
                         await ctx.reply(f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n```lua\n{content}\n```')
                         
-        except TimeoutError:
+        except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
         except Exception as e:
             await ctx.reply(f'❌ Error: {str(e)}')
@@ -700,7 +670,6 @@ async def get_content(ctx, *, loadstring):
 # =============================================
 @bot.command(name='help')
 async def help_command(ctx):
-    # Verificar que el comando se use en el canal correcto
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
@@ -731,53 +700,204 @@ async def help_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS CON PREFIJO ! (Mantenidos para compatibilidad)
+# COMANDOS STICK (Mantienen el prefijo !)
 # =============================================
-@bot.command(name='panel')
-async def panel_cmd(ctx):
+@bot.command(name='stick')
+async def stick_cmd(ctx, *, args=None):
+    """Comando stick principal - usa !stick warn/ban/mute/unmute/unwarn"""
+    if args is None:
+        await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
+        return
+    
+    # Verificar permisos
     if not tiene_rol_permitido(ctx.author):
-        await ctx.send("❌ No tienes permiso para usar este comando.")
+        await ctx.send("❌ No tienes el rol necesario para usar este comando.")
         return
-    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
-
-@bot.command(name='clear_spam')
-@commands.has_permissions(administrator=True)
-async def clear_spam_cmd(ctx):
-    global spam_counter
-    spam_counter.clear()
-    await ctx.send("✅ Contador de spam limpiado.")
-
-@bot.command(name='set_autorole')
-@commands.has_permissions(administrator=True)
-async def set_autorole_cmd(ctx, rol_id: int = None):
-    global AUTO_ROLE_ID
-    if rol_id is None:
-        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
+    
+    partes = args.split()
+    if len(partes) < 1:
+        await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
-    rol = ctx.guild.get_role(rol_id)
-    if rol is None:
-        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
+    
+    comando = partes[0].lower()
+    
+    # !stick ban all
+    if comando == 'ban' and len(partes) >= 2 and partes[1].lower() == 'all':
+        if not ctx.guild.me.guild_permissions.ban_members:
+            await ctx.send("❌ El bot no tiene permisos para banear miembros.")
+            return
+        
+        await ctx.send(
+            f"⚠️ **¿ESTÁS SEGURO?**\n"
+            f"Esto baneará a **TODOS** los miembros del servidor.\n"
+            f"Esta acción es **IRREVERSIBLE**.\n\n"
+            f"Para confirmar, escribe `!stick confirmar ban all` en los próximos 30 segundos."
+        )
+        
+        def check(m):
+            return m.author == ctx.author and m.content.lower() == '!stick confirmar ban all' and m.channel == ctx.channel
+        
+        try:
+            await bot.wait_for('message', timeout=30.0, check=check)
+        except asyncio.TimeoutError:
+            await ctx.send("❌ Tiempo de confirmación agotado. Baneo cancelado.")
+            return
+        
+        resultado = await ban_all_members(ctx.guild, ctx.author, "Baneo masivo por comando stick")
+        
+        embed = discord.Embed(
+            title="✅ BANEO MASIVO COMPLETADO",
+            description=f"**Baneados:** {resultado['baneados']}\n"
+                        f"**Errores:** {resultado['errores']}\n"
+                        f"**Omitidos:** {len(resultado['omitidos'])}",
+            color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
+        )
+        if resultado['omitidos']:
+            omitidos_texto = "\n".join(resultado['omitidos'][:10])
+            if len(resultado['omitidos']) > 10:
+                omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
+            embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
+        if resultado['errores_lista']:
+            errores_texto = "\n".join(resultado['errores_lista'][:10])
+            if len(resultado['errores_lista']) > 10:
+                errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
+            embed.add_field(name="Errores", value=errores_texto, inline=False)
+        await ctx.send(embed=embed)
+        
+        canal_logs = bot.get_channel(CANAL_LOGS_ID)
+        if canal_logs:
+            log_embed = discord.Embed(
+                title="🔨 BANEO MASIVO POR STICK",
+                description=f"**Usuario:** {ctx.author.mention}\n"
+                            f"**Baneados:** {resultado['baneados']}\n"
+                            f"**Errores:** {resultado['errores']}",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
+            )
+            await canal_logs.send(embed=log_embed)
+        
+        logger.info(f"🔨 Baneo masivo por stick ejecutado por {ctx.author.name}: {resultado['baneados']} baneados")
         return
-    AUTO_ROLE_ID = rol_id
-    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
-
-@bot.command(name='add_autorole')
-@commands.has_permissions(administrator=True)
-async def add_autorole_cmd(ctx, miembro: discord.Member = None):
-    if miembro is None:
-        miembro = ctx.author
-    rol = ctx.guild.get_role(AUTO_ROLE_ID)
-    if rol is None:
-        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
+    
+    # Comandos que requieren mención
+    if len(ctx.message.mentions) == 0:
+        await ctx.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
         return
-    if rol in miembro.roles:
-        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
+    
+    user = ctx.message.mentions[0]
+    
+    # Verificar si el usuario es exento
+    if es_exento(user):
+        await ctx.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
         return
-    try:
-        await miembro.add_roles(rol)
-        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
-    except Exception as e:
-        await ctx.send(f"❌ Error al asignar el rol: {e}")
+    
+    if comando == 'warn':
+        warns = cargar_warns()
+        user_id = str(user.id)
+        warns[user_id] = warns.get(user_id, 0) + 1
+        guardar_warns(warns)
+        await ctx.send(f"⚠️ {user.mention} ha recibido un warn. Total: {warns[user_id]}")
+        if warns[user_id] >= 3:
+            if not ctx.guild.me.guild_permissions.ban_members:
+                await ctx.send("❌ El bot no tiene permisos para banear.")
+                return
+            if user == ctx.guild.owner:
+                await ctx.send("❌ No puedo banear al propietario del servidor.")
+                return
+            if ctx.guild.me.top_role <= user.top_role:
+                await ctx.send(f"❌ Mi rol no es superior al de {user.mention}.")
+                return
+            try:
+                await user.ban(reason="3 warnings acumulados (ban automático)")
+                await ctx.send(f"🚫 {user.mention} ha sido baneado por acumular 3 warnings.")
+                del warns[user_id]
+                guardar_warns(warns)
+            except Exception as e:
+                await ctx.send(f"❌ Error al banear: {e}")
+    
+    elif comando == 'unwarn':
+        warns = cargar_warns()
+        user_id = str(user.id)
+        if user_id not in warns or warns[user_id] <= 0:
+            await ctx.send(f"ℹ️ {user.mention} no tiene warnings para quitar.")
+            return
+        warns[user_id] -= 1
+        if warns[user_id] == 0:
+            del warns[user_id]
+        guardar_warns(warns)
+        await ctx.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
+    
+    elif comando == 'mute':
+        if len(partes) < 2:
+            await ctx.send("❌ Uso: `!stick mute @usuario 5m razón`")
+            return
+        tiempo = partes[1]
+        razon = ' '.join(partes[2:]) if len(partes) > 2 else "Sin razón"
+        match = re.match(r'(\d+)([smhd])', tiempo.lower())
+        if not match:
+            await ctx.send("❌ Formato inválido. Usa: 5m, 1h, 1d")
+            return
+        cantidad, unidad = match.groups()
+        cantidad = int(cantidad)
+        segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
+        total_segundos = cantidad * segundos
+        if total_segundos > 86400 * 7:
+            await ctx.send("❌ No puedes mutear por más de 7 días.")
+            return
+        mute_role = await get_mute_role(ctx.guild)
+        await user.add_roles(mute_role)
+        end_time = datetime.now().timestamp() + total_segundos
+        await guardar_mute(ctx.guild.id, user.id, end_time)
+        mutes_activos[f"{ctx.guild.id}_{user.id}"] = end_time
+        await ctx.send(f"🔇 {user.mention} muteado por {cantidad}{unidad}. Razón: {razon}")
+        async def desmutear():
+            await asyncio.sleep(total_segundos)
+            try:
+                await user.remove_roles(mute_role)
+                await eliminar_mute(ctx.guild.id, user.id)
+                if f"{ctx.guild.id}_{user.id}" in mutes_activos:
+                    del mutes_activos[f"{ctx.guild.id}_{user.id}"]
+                await ctx.send(f"🔊 {user.mention} ha sido desmuteado automáticamente")
+            except Exception as e:
+                print(f"Error al desmutear: {e}")
+        bot.loop.create_task(desmutear())
+    
+    elif comando == 'unmute':
+        mute_role = await get_mute_role(ctx.guild)
+        if mute_role in user.roles:
+            await user.remove_roles(mute_role)
+            await eliminar_mute(ctx.guild.id, user.id)
+            if f"{ctx.guild.id}_{user.id}" in mutes_activos:
+                del mutes_activos[f"{ctx.guild.id}_{user.id}"]
+            await ctx.send(f"🔊 {user.mention} ha sido desmuteado")
+        else:
+            await ctx.send(f"ℹ️ {user.mention} no está muteado")
+    
+    elif comando == 'ban':
+        bot_member = ctx.guild.me
+        if not bot_member.guild_permissions.ban_members:
+            await ctx.send("❌ El bot no tiene el permiso `Banear miembros`.")
+            return
+        if user == ctx.author:
+            await ctx.send("❌ No puedes banearte a ti mismo.")
+            return
+        if user == bot.user:
+            await ctx.send("❌ No puedes banear al bot.")
+            return
+        if user == ctx.guild.owner:
+            await ctx.send("❌ No puedo banear al propietario del servidor.")
+            return
+        if bot_member.top_role <= user.top_role:
+            await ctx.send(f"❌ Mi rol no es superior al de {user.mention}.")
+            return
+        try:
+            await user.ban(reason=f"Baneado por {ctx.author} (comando stick ban)")
+            await ctx.send(f"✅ {user.mention} ha sido baneado correctamente.")
+        except Exception as e:
+            await ctx.send(f"❌ Error al banear: {e}")
+    
+    else:
+        await ctx.send("❌ Comando no reconocido. Usa: warn, unwarn, ban, mute, unmute")
 
 # =============================================
 # EVENTO ON_READY
@@ -1018,7 +1138,7 @@ async def on_member_unban(guild, user):
         print(f"❌ Error al enviar log de unban: {e}")
 
 # =============================================
-# EVENTO ON_MESSAGE: MODERACIÓN + IA + COMANDOS STICK
+# EVENTO ON_MESSAGE: MODERACIÓN + IA
 # =============================================
 @bot.event
 async def on_message(message):
@@ -1056,10 +1176,7 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # =============================================
     # SISTEMA DE MODERACIÓN AUTOMÁTICA
-    # SOLO se aplica si el usuario NO es exento
-    # =============================================
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -1095,202 +1212,6 @@ async def on_message(message):
                 await message.channel.send(embed=embed, delete_after=10)
             except Exception as e:
                 print(f"❌ Error al aplicar moderación: {e}")
-
-    # =============================================
-    # COMANDOS STICK (warn, unwarn, ban, mute, unmute, ban all)
-    # =============================================
-    if message.content.lower().startswith('!stick '):
-        partes = message.content.split()
-        if len(partes) >= 2:
-            comando = partes[1].lower()
-            
-            if not tiene_rol_permitido(message.author):
-                await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
-                await bot.process_commands(message)
-                return
-
-            # stick ban all
-            if comando == 'ban' and len(partes) >= 3 and partes[2].lower() == 'all':
-                if not message.guild.me.guild_permissions.ban_members:
-                    await message.channel.send("❌ El bot no tiene permisos para banear miembros.")
-                    await bot.process_commands(message)
-                    return
-                
-                await message.channel.send(
-                    f"⚠️ **¿ESTÁS SEGURO?**\n"
-                    f"Esto baneará a **TODOS** los miembros del servidor.\n"
-                    f"Esta acción es **IRREVERSIBLE**.\n\n"
-                    f"Para confirmar, escribe `!stick confirmar ban all` en los próximos 30 segundos."
-                )
-                
-                def check(m):
-                    return m.author == message.author and m.content.lower() == '!stick confirmar ban all' and m.channel == message.channel
-                
-                try:
-                    await bot.wait_for('message', timeout=30.0, check=check)
-                except asyncio.TimeoutError:
-                    await message.channel.send("❌ Tiempo de confirmación agotado. Baneo cancelado.")
-                    await bot.process_commands(message)
-                    return
-                
-                resultado = await ban_all_members(message.guild, message.author, "Baneo masivo por comando stick")
-                
-                embed = discord.Embed(
-                    title="✅ BANEO MASIVO COMPLETADO",
-                    description=f"**Baneados:** {resultado['baneados']}\n"
-                                f"**Errores:** {resultado['errores']}\n"
-                                f"**Omitidos:** {len(resultado['omitidos'])}",
-                    color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
-                )
-                if resultado['omitidos']:
-                    omitidos_texto = "\n".join(resultado['omitidos'][:10])
-                    if len(resultado['omitidos']) > 10:
-                        omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
-                    embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
-                if resultado['errores_lista']:
-                    errores_texto = "\n".join(resultado['errores_lista'][:10])
-                    if len(resultado['errores_lista']) > 10:
-                        errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
-                    embed.add_field(name="Errores", value=errores_texto, inline=False)
-                await message.channel.send(embed=embed)
-                
-                canal_logs = bot.get_channel(CANAL_LOGS_ID)
-                if canal_logs:
-                    log_embed = discord.Embed(
-                        title="🔨 BANEO MASIVO POR STICK",
-                        description=f"**Usuario:** {message.author.mention}\n"
-                                    f"**Baneados:** {resultado['baneados']}\n"
-                                    f"**Errores:** {resultado['errores']}",
-                        color=discord.Color.red(),
-                        timestamp=datetime.now()
-                    )
-                    await canal_logs.send(embed=log_embed)
-                
-                logger.info(f"🔨 Baneo masivo por stick ejecutado por {message.author.name}: {resultado['baneados']} baneados")
-                await bot.process_commands(message)
-                return
-
-            # Comandos normales (requieren mención)
-            if len(message.mentions) == 0:
-                await message.channel.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
-                await bot.process_commands(message)
-                return
-
-            user = message.mentions[0]
-
-            # Verificar si el usuario objetivo es exento
-            if es_exento(user):
-                await message.channel.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
-                await bot.process_commands(message)
-                return
-
-            if comando == 'warn':
-                warns = cargar_warns()
-                user_id = str(user.id)
-                warns[user_id] = warns.get(user_id, 0) + 1
-                guardar_warns(warns)
-                await message.channel.send(f"⚠️ {user.mention} ha recibido un warn. Total: {warns[user_id]}")
-                if warns[user_id] >= 3:
-                    if not message.guild.me.guild_permissions.ban_members:
-                        await message.channel.send("❌ El bot no tiene permisos para banear.")
-                        return
-                    if user == message.guild.owner:
-                        await message.channel.send("❌ No puedo banear al propietario del servidor.")
-                        return
-                    if message.guild.me.top_role <= user.top_role:
-                        await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
-                        return
-                    try:
-                        await user.ban(reason="3 warnings acumulados (ban automático)")
-                        await message.channel.send(f"🚫 {user.mention} ha sido baneado por acumular 3 warnings.")
-                        del warns[user_id]
-                        guardar_warns(warns)
-                    except Exception as e:
-                        await message.channel.send(f"❌ Error al banear: {e}")
-
-            elif comando == 'unwarn':
-                warns = cargar_warns()
-                user_id = str(user.id)
-                if user_id not in warns or warns[user_id] <= 0:
-                    await message.channel.send(f"ℹ️ {user.mention} no tiene warnings para quitar.")
-                    return
-                warns[user_id] -= 1
-                if warns[user_id] == 0:
-                    del warns[user_id]
-                guardar_warns(warns)
-                await message.channel.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
-
-            elif comando == 'mute':
-                if len(partes) < 4:
-                    await message.channel.send("❌ Uso: `!stick mute @usuario 5m razón`")
-                    await bot.process_commands(message)
-                    return
-                tiempo = partes[2]
-                razon = ' '.join(partes[3:]) if len(partes) > 3 else "Sin razón"
-                match = re.match(r'(\d+)([smhd])', tiempo.lower())
-                if not match:
-                    await message.channel.send("❌ Formato inválido. Usa: 5m, 1h, 1d")
-                    await bot.process_commands(message)
-                    return
-                cantidad, unidad = match.groups()
-                cantidad = int(cantidad)
-                segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
-                total_segundos = cantidad * segundos
-                if total_segundos > 86400 * 7:
-                    await message.channel.send("❌ No puedes mutear por más de 7 días.")
-                    await bot.process_commands(message)
-                    return
-                mute_role = await get_mute_role(message.guild)
-                await user.add_roles(mute_role)
-                end_time = datetime.now().timestamp() + total_segundos
-                await guardar_mute(message.guild.id, user.id, end_time)
-                mutes_activos[f"{message.guild.id}_{user.id}"] = end_time
-                await message.channel.send(f"🔇 {user.mention} muteado por {cantidad}{unidad}. Razón: {razon}")
-                async def desmutear():
-                    await asyncio.sleep(total_segundos)
-                    try:
-                        await user.remove_roles(mute_role)
-                        await eliminar_mute(message.guild.id, user.id)
-                        if f"{message.guild.id}_{user.id}" in mutes_activos:
-                            del mutes_activos[f"{message.guild.id}_{user.id}"]
-                        await message.channel.send(f"🔊 {user.mention} ha sido desmuteado automáticamente")
-                    except Exception as e:
-                        print(f"Error al desmutear: {e}")
-                bot.loop.create_task(desmutear())
-
-            elif comando == 'unmute':
-                mute_role = await get_mute_role(message.guild)
-                if mute_role in user.roles:
-                    await user.remove_roles(mute_role)
-                    await eliminar_mute(message.guild.id, user.id)
-                    if f"{message.guild.id}_{user.id}" in mutes_activos:
-                        del mutes_activos[f"{message.guild.id}_{user.id}"]
-                    await message.channel.send(f"🔊 {user.mention} ha sido desmuteado")
-                else:
-                    await message.channel.send(f"ℹ️ {user.mention} no está muteado")
-
-            elif comando == 'ban':
-                bot_member = message.guild.me
-                if not bot_member.guild_permissions.ban_members:
-                    await message.channel.send("❌ El bot no tiene el permiso `Banear miembros`.")
-                    return
-                if user == message.author:
-                    await message.channel.send("❌ No puedes banearte a ti mismo.")
-                    return
-                if user == bot.user:
-                    await message.channel.send("❌ No puedes banear al bot.")
-                    return
-                if user == message.guild.owner:
-                    await message.channel.send("❌ No puedo banear al propietario del servidor.")
-                    return
-                if bot_member.top_role <= user.top_role:
-                    await message.channel.send(f"❌ Mi rol no es superior al de {user.mention}.")
-                    return
-                try:
-                    await user.ban(reason=f"Baneado por {message.author} (comando stick ban)")
-                    await message.channel.send(f"✅ {user.mention} ha sido baneado correctamente.")
-                except Exception as e:
-                    await message.channel.send(f"❌ Error al banear: {e}")
 
     await bot.process_commands(message)
 
