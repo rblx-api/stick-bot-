@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 import asyncio
 import tempfile
+import sys
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -19,7 +20,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('bot_logs.txt'),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -29,9 +30,12 @@ logger = logging.getLogger(__name__)
 # =============================================
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    raise ValueError("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
+    logger.error("❌ No se encontró el TOKEN. Configúralo en variables de entorno.")
+    sys.exit(1)
 
-GROQ_API_KEY = "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"
+logger.info("✅ TOKEN encontrado correctamente")
+
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', "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")
 CANAL_IA_ID = 1536862569497624606
 
 # ROLES PERMITIDOS (Staff)
@@ -42,9 +46,9 @@ ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
 
 # ROLES EXENTOS DE MODERACIÓN AUTOMÁTICA Y MANUAL
 ROLES_EXENTOS = [
-    1519744694416965782,  # Rol staff 1 (también es permitido)
-    1541563602912149604,  # Nuevo rol exento
-    1519793995264294972,  # Rol exento original
+    1519744694416965782,
+    1541563602912149604,
+    1519793995264294972,
 ]
 
 AUTO_ROLE_ID = 1508133051798917140
@@ -74,7 +78,6 @@ intents.members = True
 intents.guild_messages = True
 intents.guilds = True
 
-# Prefijos: ! para comandos stick, . para get/help
 bot = commands.Bot(command_prefix=['!', '.'], intents=intents)
 
 tickets_activos = {}
@@ -88,7 +91,7 @@ RAID_JOIN_LIMIT = 5
 RAID_TIME_LIMIT = 60
 
 # =============================================
-# FUNCIÓN PARA VERIFICAR ROLES PERMITIDOS
+# FUNCIONES PARA VERIFICAR ROLES
 # =============================================
 def tiene_rol_permitido(member):
     for rol_id in ROLES_PERMITIDOS:
@@ -96,9 +99,6 @@ def tiene_rol_permitido(member):
             return True
     return False
 
-# =============================================
-# FUNCIÓN PARA VERIFICAR SI ES EXENTO
-# =============================================
 def es_exento(member):
     for rol_id in ROLES_EXENTOS:
         if discord.utils.get(member.roles, id=rol_id):
@@ -106,21 +106,24 @@ def es_exento(member):
     return False
 
 # =============================================
-# FUNCIONES PARA MANEJO DE WARNS
+# FUNCIONES PARA MANEJO DE ARCHIVOS
 # =============================================
 def cargar_warns():
     if os.path.exists(ARCHIVO_WARNS):
-        with open(ARCHIVO_WARNS, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(ARCHIVO_WARNS, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
     return {}
 
 def guardar_warns(warns):
-    with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
-        json.dump(warns, f, indent=4, ensure_ascii=False)
+    try:
+        with open(ARCHIVO_WARNS, 'w', encoding='utf-8') as f:
+            json.dump(warns, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error guardando warns: {e}")
 
-# =============================================
-# FUNCIONES DE MANEJO DE ARCHIVOS JSON
-# =============================================
 def cargar_json(archivo, default=None):
     if default is None:
         default = {}
@@ -133,8 +136,11 @@ def cargar_json(archivo, default=None):
     return default
 
 def guardar_json(archivo, datos):
-    with open(archivo, 'w', encoding='utf-8') as f:
-        json.dump(datos, f, indent=4, ensure_ascii=False)
+    try:
+        with open(archivo, 'w', encoding='utf-8') as f:
+            json.dump(datos, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error guardando {archivo}: {e}")
 
 # =============================================
 # FUNCIONES DE MODERACIÓN
@@ -212,29 +218,35 @@ async def aplicar_warn(member, razon, canal=None):
 async def get_mute_role(guild):
     mute_role = discord.utils.get(guild.roles, name="Muted")
     if not mute_role:
-        mute_role = await guild.create_role(
-            name="Muted", 
-            permissions=discord.Permissions(0)
-        )
-        for channel in guild.channels:
-            try:
-                await channel.set_permissions(
-                    mute_role, 
-                    send_messages=False, 
-                    add_reactions=False, 
-                    speak=False,
-                    connect=False
-                )
-            except:
-                pass
+        try:
+            mute_role = await guild.create_role(
+                name="Muted", 
+                permissions=discord.Permissions(0)
+            )
+            for channel in guild.channels:
+                try:
+                    await channel.set_permissions(
+                        mute_role, 
+                        send_messages=False, 
+                        add_reactions=False, 
+                        speak=False,
+                        connect=False
+                    )
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Error creando rol Muted: {e}")
     return mute_role
 
 async def cargar_mutes():
     global mutes_activos
-    mutes_data = cargar_json(ARCHIVO_MUTES)
-    for guild_id, users in mutes_data.items():
-        for user_id, end_time in users.items():
-            mutes_activos[f"{guild_id}_{user_id}"] = end_time
+    try:
+        mutes_data = cargar_json(ARCHIVO_MUTES)
+        for guild_id, users in mutes_data.items():
+            for user_id, end_time in users.items():
+                mutes_activos[f"{guild_id}_{user_id}"] = end_time
+    except Exception as e:
+        logger.error(f"Error cargando mutes: {e}")
 
 async def guardar_mute(guild_id, user_id, end_time):
     mutes = cargar_json(ARCHIVO_MUTES)
@@ -279,35 +291,20 @@ async def consultar_groq(pregunta):
         "top_p": 0.9
     }
     
-    logger.info(f"🔍 Enviando pregunta a Groq: {pregunta[:100]}...")
-    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=data, timeout=30) as response:
                 if response.status == 200:
                     resultado = await response.json()
-                    respuesta = resultado['choices'][0]['message']['content']
-                    logger.info(f"✅ Respuesta recibida de Groq: {respuesta[:100]}...")
-                    return respuesta
-                elif response.status == 401:
-                    return "❌ La API key de Groq es inválida o ha expirado. Contacta al administrador."
-                elif response.status == 429:
-                    return "❌ Demasiadas peticiones a la IA. Espera un momento y vuelve a intentarlo."
+                    return resultado['choices'][0]['message']['content']
                 else:
-                    error_text = await response.text()
-                    logger.error(f"❌ Error en la API de Groq: {response.status} - {error_text}")
                     return f"❌ Error {response.status}: La API de Groq no respondió correctamente."
-    except aiohttp.ClientTimeout:
-        return "❌ La IA tardó demasiado en responder. Intenta de nuevo con una pregunta más corta."
-    except aiohttp.ClientError as e:
-        logger.error(f"❌ Error de conexión con Groq: {e}")
-        return "❌ Error de conexión con la API de Groq. Verifica tu conexión a internet."
     except Exception as e:
-        logger.error(f"❌ Error al consultar la API de Groq: {e}")
-        return f"❌ Error inesperado. Por favor, intenta de nuevo más tarde."
+        logger.error(f"Error en Groq: {e}")
+        return f"❌ Error al consultar la IA: {str(e)[:100]}"
 
 # =============================================
-# FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
+# FUNCIÓN PARA OBTENER CATEGORÍA DE TICKETS
 # =============================================
 async def obtener_categoria(guild):
     if CATEGORIA_TICKETS_ID:
@@ -316,7 +313,10 @@ async def obtener_categoria(guild):
             return categoria
     categoria = discord.utils.get(guild.categories, name="TICKETS")
     if not categoria:
-        categoria = await guild.create_category("TICKETS")
+        try:
+            categoria = await guild.create_category("TICKETS")
+        except Exception as e:
+            logger.error(f"Error creando categoría: {e}")
     return categoria
 
 # =============================================
@@ -370,6 +370,10 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                     return
 
             categoria = await obtener_categoria(guild)
+            if not categoria:
+                await interaction.followup.send("❌ Error al obtener la categoría para tickets.", ephemeral=True)
+                return
+
             nombre_canal = f"ticket-{usuario.name.lower().replace(' ', '-')}"
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -420,7 +424,8 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             await interaction.followup.send(f"✅ Ticket creado: {canal.mention}", ephemeral=True)
 
         except Exception as e:
-            await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)}", ephemeral=True)
+            logger.error(f"Error en PreguntaModal: {e}")
+            await interaction.followup.send(f"❌ Error al crear el ticket: {str(e)[:200]}", ephemeral=True)
 
 class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
     nota = ui.TextInput(
@@ -432,9 +437,13 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
     )
     
     async def on_submit(self, interaction: discord.Interaction):
-        canal = interaction.channel
-        await canal.send(f"📝 **Nota interna de {interaction.user.name}:**\n{self.nota.value}")
-        await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
+        try:
+            canal = interaction.channel
+            await canal.send(f"📝 **Nota interna de {interaction.user.name}:**\n{self.nota.value}")
+            await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error en NotaModal: {e}")
+            await interaction.response.send_message(f"❌ Error: {str(e)[:200]}", ephemeral=True)
 
 # =============================================
 # VISTAS DE TICKETS
@@ -615,12 +624,10 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
-    # Verificar que el comando se use en el canal correcto
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
-    # Extraer URL del loadstring
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     
     if not url_match:
@@ -629,7 +636,6 @@ async def get_content(ctx, *, loadstring):
     
     url = url_match.group(1)
     
-    # Mostrar "El bot está escribiendo..."
     async with ctx.typing():
         try:
             async with aiohttp.ClientSession() as session:
@@ -645,7 +651,6 @@ async def get_content(ctx, *, loadstring):
                     
                     content = await response.text()
                     
-                    # Si el contenido es muy largo, enviar como archivo
                     if len(content) > 1900:
                         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
                             temp_file.write(content)
@@ -656,20 +661,24 @@ async def get_content(ctx, *, loadstring):
                             file=discord.File(temp_path)
                         )
                         
-                        os.unlink(temp_path)
+                        try:
+                            os.unlink(temp_path)
+                        except:
+                            pass
                     else:
                         await ctx.reply(f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n```lua\n{content}\n```')
                         
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
         except Exception as e:
-            await ctx.reply(f'❌ Error: {str(e)}')
+            logger.error(f"Error en .get: {e}")
+            await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO .help (SOLO FUNCIONA EN EL CANAL ESPECÍFICO)
+# COMANDO .gethelp (RENOMBRADO PARA EVITAR CONFLICTO CON help)
 # =============================================
-@bot.command(name='help')
-async def help_command(ctx):
+@bot.command(name='gethelp')
+async def gethelp_command(ctx):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
@@ -685,7 +694,7 @@ async def help_command(ctx):
         inline=False
     )
     embed.add_field(
-        name='📝 .help',
+        name='📝 .gethelp',
         value='Muestra este mensaje de ayuda',
         inline=False
     )
@@ -700,16 +709,14 @@ async def help_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK (Mantienen el prefijo !)
+# COMANDOS STICK
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
-    """Comando stick principal - usa !stick warn/ban/mute/unmute/unwarn"""
     if args is None:
         await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
     
-    # Verificar permisos
     if not tiene_rol_permitido(ctx.author):
         await ctx.send("❌ No tienes el rol necesario para usar este comando.")
         return
@@ -786,7 +793,6 @@ async def stick_cmd(ctx, *, args=None):
     
     user = ctx.message.mentions[0]
     
-    # Verificar si el usuario es exento
     if es_exento(user):
         await ctx.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
         return
@@ -1145,7 +1151,6 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -1437,6 +1442,55 @@ async def slash_clear_spam(interaction: discord.Interaction):
     spam_counter.clear()
     await interaction.response.send_message("✅ Contador de spam limpiado.")
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
+
+# =============================================
+# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
+# =============================================
+@bot.command(name='panel')
+async def panel_cmd(ctx):
+    if not tiene_rol_permitido(ctx.author):
+        await ctx.send("❌ No tienes permiso para usar este comando.")
+        return
+    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
+
+@bot.command(name='clear_spam')
+@commands.has_permissions(administrator=True)
+async def clear_spam_cmd(ctx):
+    global spam_counter
+    spam_counter.clear()
+    await ctx.send("✅ Contador de spam limpiado.")
+
+@bot.command(name='set_autorole')
+@commands.has_permissions(administrator=True)
+async def set_autorole_cmd(ctx, rol_id: int = None):
+    global AUTO_ROLE_ID
+    if rol_id is None:
+        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
+        return
+    rol = ctx.guild.get_role(rol_id)
+    if rol is None:
+        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
+        return
+    AUTO_ROLE_ID = rol_id
+    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+
+@bot.command(name='add_autorole')
+@commands.has_permissions(administrator=True)
+async def add_autorole_cmd(ctx, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = ctx.author
+    rol = ctx.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
+        return
+    if rol in miembro.roles:
+        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
+        return
+    try:
+        await miembro.add_roles(rol)
+        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error al asignar el rol: {e}")
 
 # =============================================
 # INICIAR EL BOT
