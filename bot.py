@@ -56,10 +56,8 @@ CATEGORIA_TICKETS_ID = 1536466416851488828
 CANAL_SUGERENCIAS_ID = 1536466416851488828
 CANAL_LOGS_ID = 1517328591732477962
 
-# =============================================
-# CANAL PARA EL COMANDO .get (NUEVO)
-# =============================================
-CANAL_GET_ID = 1541804529694285975  # Canal donde funciona .get
+# CANAL PARA EL COMANDO .get
+CANAL_GET_ID = 1541804529694285975
 
 # Archivos de datos
 ARCHIVO_WARNS = 'warns.json'
@@ -76,7 +74,8 @@ intents.members = True
 intents.guild_messages = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix='.', intents=intents)  # Cambiado a '.' para el comando .get
+# Usamos dos prefijos: ! para comandos stick y . para get/help
+bot = commands.Bot(command_prefix=['!', '.'], intents=intents)
 
 tickets_activos = {}
 spam_counter = defaultdict(list)
@@ -409,7 +408,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             embed = discord.Embed(
                 title=f"🎫 Ticket de {usuario.name}",
                 description=f"**Tipo:** {nombres.get(self.tipo_ticket, self.tipo_ticket)}\n\n**Respuesta:** {respuesta}\n\n*Un miembro del staff te atenderá.*",
-                color=discord.Color.orange()  # Color naranja
+                color=discord.Color.orange()
             )
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
 
@@ -444,7 +443,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (CON COLOR NARANJA EN OPCIONES)
+# VISTAS DE TICKETS
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
@@ -732,7 +731,56 @@ async def help_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# EVENTO ON_READY (PANEL CON COLOR NARANJA)
+# COMANDOS CON PREFIJO ! (Mantenidos para compatibilidad)
+# =============================================
+@bot.command(name='panel')
+async def panel_cmd(ctx):
+    if not tiene_rol_permitido(ctx.author):
+        await ctx.send("❌ No tienes permiso para usar este comando.")
+        return
+    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
+
+@bot.command(name='clear_spam')
+@commands.has_permissions(administrator=True)
+async def clear_spam_cmd(ctx):
+    global spam_counter
+    spam_counter.clear()
+    await ctx.send("✅ Contador de spam limpiado.")
+
+@bot.command(name='set_autorole')
+@commands.has_permissions(administrator=True)
+async def set_autorole_cmd(ctx, rol_id: int = None):
+    global AUTO_ROLE_ID
+    if rol_id is None:
+        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
+        return
+    rol = ctx.guild.get_role(rol_id)
+    if rol is None:
+        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
+        return
+    AUTO_ROLE_ID = rol_id
+    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+
+@bot.command(name='add_autorole')
+@commands.has_permissions(administrator=True)
+async def add_autorole_cmd(ctx, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = ctx.author
+    rol = ctx.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
+        return
+    if rol in miembro.roles:
+        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
+        return
+    try:
+        await miembro.add_roles(rol)
+        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+    except Exception as e:
+        await ctx.send(f"❌ Error al asignar el rol: {e}")
+
+# =============================================
+# EVENTO ON_READY
 # =============================================
 @bot.event
 async def on_ready():
@@ -811,7 +859,7 @@ async def on_ready():
                 "   👉  Choose an option from the dropdown menu\n\n"
                 "═══════════════════════════════════════════════════════════"
             ),
-            color=discord.Color.orange()  # Color naranja
+            color=discord.Color.orange()
         )
         embed.set_footer(text="🔸 Selecciona una opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
@@ -1051,7 +1099,7 @@ async def on_message(message):
     # =============================================
     # COMANDOS STICK (warn, unwarn, ban, mute, unmute, ban all)
     # =============================================
-    if message.content.lower().startswith('stick '):
+    if message.content.lower().startswith('!stick '):
         partes = message.content.split()
         if len(partes) >= 2:
             comando = partes[1].lower()
@@ -1072,11 +1120,11 @@ async def on_message(message):
                     f"⚠️ **¿ESTÁS SEGURO?**\n"
                     f"Esto baneará a **TODOS** los miembros del servidor.\n"
                     f"Esta acción es **IRREVERSIBLE**.\n\n"
-                    f"Para confirmar, escribe `stick confirmar ban all` en los próximos 30 segundos."
+                    f"Para confirmar, escribe `!stick confirmar ban all` en los próximos 30 segundos."
                 )
                 
                 def check(m):
-                    return m.author == message.author and m.content.lower() == 'stick confirmar ban all' and m.channel == message.channel
+                    return m.author == message.author and m.content.lower() == '!stick confirmar ban all' and m.channel == message.channel
                 
                 try:
                     await bot.wait_for('message', timeout=30.0, check=check)
@@ -1124,7 +1172,7 @@ async def on_message(message):
 
             # Comandos normales (requieren mención)
             if len(message.mentions) == 0:
-                await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
+                await message.channel.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
                 await bot.process_commands(message)
                 return
 
@@ -1174,7 +1222,7 @@ async def on_message(message):
 
             elif comando == 'mute':
                 if len(partes) < 4:
-                    await message.channel.send("❌ Uso: `stick mute @usuario 5m razón`")
+                    await message.channel.send("❌ Uso: `!stick mute @usuario 5m razón`")
                     await bot.process_commands(message)
                     return
                 tiempo = partes[2]
@@ -1468,55 +1516,6 @@ async def slash_clear_spam(interaction: discord.Interaction):
     spam_counter.clear()
     await interaction.response.send_message("✅ Contador de spam limpiado.")
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
-
-# =============================================
-# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
-# =============================================
-@bot.command(name='panel')
-async def panel_cmd(ctx):
-    if not tiene_rol_permitido(ctx.author):
-        await ctx.send("❌ No tienes permiso para usar este comando.")
-        return
-    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
-
-@bot.command(name='clear_spam')
-@commands.has_permissions(administrator=True)
-async def clear_spam_cmd(ctx):
-    global spam_counter
-    spam_counter.clear()
-    await ctx.send("✅ Contador de spam limpiado.")
-
-@bot.command(name='set_autorole')
-@commands.has_permissions(administrator=True)
-async def set_autorole_cmd(ctx, rol_id: int = None):
-    global AUTO_ROLE_ID
-    if rol_id is None:
-        await ctx.send(f"🎭 Rol actual: <@&{AUTO_ROLE_ID}> (ID: {AUTO_ROLE_ID})")
-        return
-    rol = ctx.guild.get_role(rol_id)
-    if rol is None:
-        await ctx.send(f"❌ No se encontró el rol con ID {rol_id}")
-        return
-    AUTO_ROLE_ID = rol_id
-    await ctx.send(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
-
-@bot.command(name='add_autorole')
-@commands.has_permissions(administrator=True)
-async def add_autorole_cmd(ctx, miembro: discord.Member = None):
-    if miembro is None:
-        miembro = ctx.author
-    rol = ctx.guild.get_role(AUTO_ROLE_ID)
-    if rol is None:
-        await ctx.send(f"❌ El rol con ID {AUTO_ROLE_ID} no existe")
-        return
-    if rol in miembro.roles:
-        await ctx.send(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}")
-        return
-    try:
-        await miembro.add_roles(rol)
-        await ctx.send(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
-    except Exception as e:
-        await ctx.send(f"❌ Error al asignar el rol: {e}")
 
 # =============================================
 # INICIAR EL BOT
