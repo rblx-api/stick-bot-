@@ -192,15 +192,15 @@ async def aplicar_warn(member, razon, canal=None):
         if canal:
             await canal.send(f"🛡️ {member.mention} tiene un rol exento, no se aplica warn.")
         return
-    
+
     warns = cargar_warns()
     user_id = str(member.id)
     warns[user_id] = warns.get(user_id, 0) + 1
     guardar_warns(warns)
-    
+
     if canal:
         await canal.send(f"⚠️ {member.mention} ha recibido un warn por: {razon}. Total: {warns[user_id]}")
-    
+
     if warns[user_id] >= 3:
         try:
             await member.ban(reason=f"3 warnings acumulados por {razon}")
@@ -220,15 +220,15 @@ async def get_mute_role(guild):
     if not mute_role:
         try:
             mute_role = await guild.create_role(
-                name="Muted", 
+                name="Muted",
                 permissions=discord.Permissions(0)
             )
             for channel in guild.channels:
                 try:
                     await channel.set_permissions(
-                        mute_role, 
-                        send_messages=False, 
-                        add_reactions=False, 
+                        mute_role,
+                        send_messages=False,
+                        add_reactions=False,
                         speak=False,
                         connect=False
                     )
@@ -252,7 +252,7 @@ async def guardar_mute(guild_id, user_id, end_time):
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
-    
+
     if guild_id_str not in mutes:
         mutes[guild_id_str] = {}
     mutes[guild_id_str][user_id_str] = end_time
@@ -262,7 +262,7 @@ async def eliminar_mute(guild_id, user_id):
     mutes = cargar_json(ARCHIVO_MUTES)
     guild_id_str = str(guild_id)
     user_id_str = str(user_id)
-    
+
     if guild_id_str in mutes and user_id_str in mutes[guild_id_str]:
         del mutes[guild_id_str][user_id_str]
         if not mutes[guild_id_str]:
@@ -274,12 +274,12 @@ async def eliminar_mute(guild_id, user_id):
 # =============================================
 async def consultar_groq(pregunta):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    
+
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    
+
     data = {
         "model": "mixtral-8x7b-32768",
         "messages": [
@@ -290,7 +290,7 @@ async def consultar_groq(pregunta):
         "max_tokens": 500,
         "top_p": 0.9
     }
-    
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=data, timeout=30) as response:
@@ -380,7 +380,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 usuario: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
-            
+
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -412,9 +412,9 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
 
             view = TicketButtons(usuario.id, canal.id)
-            
+
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
-            
+
             await canal.send(
                 f"{usuario.mention} {mentions}",
                 embed=embed,
@@ -435,7 +435,7 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         required=True,
         max_length=1000
     )
-    
+
     async def on_submit(self, interaction: discord.Interaction):
         try:
             canal = interaction.channel
@@ -511,7 +511,7 @@ class TicketButtons(ui.View):
             return
 
         tickets_activos[self.canal_id]['claimado_por'] = interaction.user.id
-        
+
         usuario_id = tickets_activos[self.canal_id]['usuario_id']
         usuario = interaction.guild.get_member(usuario_id)
 
@@ -575,7 +575,7 @@ class TicketButtonsAfterClaim(ui.View):
 async def ban_all_members(guild, author, razon="Baneo masivo"):
     miembros_a_bannear = []
     miembros_omitidos = []
-    
+
     for member in guild.members:
         if member.id == bot.user.id:
             miembros_omitidos.append(f"🤖 {member.name} (Bot)")
@@ -596,14 +596,14 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
             miembros_omitidos.append(f"🛡️ {member.name} (Exento)")
             continue
         miembros_a_bannear.append(member)
-    
+
     if not miembros_a_bannear:
         return {'baneados': 0, 'errores': 0, 'omitidos': miembros_omitidos, 'errores_lista': []}
-    
+
     baneados = 0
     errores = 0
     errores_lista = []
-    
+
     for member in miembros_a_bannear:
         try:
             await member.ban(reason=f"Baneo masivo por {author.name}: {razon}")
@@ -611,7 +611,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
         except Exception as e:
             errores += 1
             errores_lista.append(f"{member.name}: {str(e)[:50]}")
-    
+
     return {
         'baneados': baneados,
         'errores': errores,
@@ -620,7 +620,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# FUNCIONES DE DEOFUSCACIÓN Y ANÁLISIS
+# FUNCIONES DE DEOFUSCACIÓN
 # =============================================
 
 def evaluar_string_char(match):
@@ -643,7 +643,7 @@ def expand_concatenaciones(code):
                 r = right[1:-1]
                 return f'"{l}{r}"'
         return match.group(0)
-    
+
     pattern = r'(["\'][^"\']*["\'])\s*\.\.\s*(["\'][^"\']*["\'])'
     for _ in range(10):
         nuevo = re.sub(pattern, reemplazar_concat, code)
@@ -663,9 +663,24 @@ def simplificar_operaciones(code):
             return match.group(0)
         except:
             return match.group(0)
-    
+
     code = re.sub(r'\(([\d+\-*/()\s]+)\)', eval_expr, code)
     code = re.sub(r'(\d+\s*[\+\-\*/]\s*\d+)', eval_expr, code)
+    return code
+
+def eliminar_funciones_anonimas(code):
+    """Intenta ejecutar funciones anónimas que devuelven un valor y sustituirlas por su resultado"""
+    def reemplazar_func(match):
+        inner = match.group(1)
+        return_match = re.search(r'return\s+([^;]*?);', inner)
+        if return_match:
+            valor = return_match.group(1).strip()
+            if valor.startswith('"') or valor.isdigit():
+                return valor
+        return match.group(0)
+
+    pattern = r'\(function\(\)\s*(.*?)\s*end\)\(\)'
+    code = re.sub(pattern, reemplazar_func, code, flags=re.DOTALL)
     return code
 
 def eliminar_loadstring_interno(code):
@@ -675,7 +690,7 @@ def eliminar_loadstring_interno(code):
         if (contenido.startswith('"') and contenido.endswith('"')) or (contenido.startswith("'") and contenido.endswith("'")):
             return contenido
         return match.group(0)
-    
+
     code = re.sub(r'loadstring\s*\(\s*(["\'])(.*?)\1\s*\)\s*\(?', quitar_loadstring, code, flags=re.DOTALL)
     return code
 
@@ -684,7 +699,7 @@ def polsec_bypass_deobf(code):
     fake_key = '"BYPASSED_BY_STICK_HUB"'
     prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
     code = prefix + code
-    
+
     patrones = [
         r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
         r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
@@ -695,7 +710,7 @@ def polsec_bypass_deobf(code):
     ]
     for p in patrones:
         code = re.sub(p, '', code, flags=re.IGNORECASE | re.DOTALL)
-    
+
     code = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', code)
@@ -706,112 +721,52 @@ def polsec_bypass_deobf(code):
     code = re.sub(r'script_key\s*~=\s*nil', 'true', code)
     code = re.sub(r'not\s+key\b', 'false', code)
     code = re.sub(r'not\s+script_key\b', 'false', code)
-    
+
     code = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-    
+
     code = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
     code = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
-    
-    return code
 
-def analizar_script(code):
-    """Analiza el script y genera un resumen de las funciones que usa"""
-    funciones = []
-    servicios = []
-    eventos = []
-    strings = []
-    
-    # Buscar servicios de Roblox
-    servicios_pattern = r'game:GetService\s*\(\s*["\']([^"\']+)["\']\s*\)'
-    servicios.extend(re.findall(servicios_pattern, code, re.IGNORECASE))
-    
-    # Buscar LocalPlayer
-    if re.search(r'game\.Players\.LocalPlayer', code, re.IGNORECASE):
-        funciones.append('game.Players.LocalPlayer')
-    
-    # Buscar workspace
-    if re.search(r'workspace', code, re.IGNORECASE):
-        funciones.append('workspace')
-    
-    # Buscar HttpGet
-    if re.search(r'game:HttpGet', code, re.IGNORECASE):
-        funciones.append('game:HttpGet (descarga remota)')
-    
-    # Buscar funciones comunes
-    funciones_comunes = [
-        ('spawn', 'spawn()'),
-        ('task.wait', 'task.wait()'),
-        ('task.spawn', 'task.spawn()'),
-        ('tween', 'TweenService'),
-        ('RemoteEvent', 'RemoteEvent'),
-        ('RemoteFunction', 'RemoteFunction'),
-        ('BindToClose', 'BindToClose'),
-        ('Instance.new', 'Instance.new()'),
-        ('game.Players.PlayerAdded', 'PlayerAdded'),
-        ('game.Players.PlayerRemoving', 'PlayerRemoving'),
-    ]
-    for patron, nombre in funciones_comunes:
-        if re.search(patron, code, re.IGNORECASE):
-            if nombre not in funciones:
-                funciones.append(nombre)
-    
-    # Buscar eventos
-    eventos_pattern = r'\.(OnClientEvent|OnServerEvent|FireServer|FireClient|InvokeServer|InvokeClient)'
-    eventos.extend(re.findall(eventos_pattern, code, re.IGNORECASE))
-    
-    # Buscar strings (para detectar GUI o mensajes)
-    strings_pattern = r'["\']([^"\']{5,50})["\']'
-    strings.extend(re.findall(strings_pattern, code))
-    
-    # Limitar strings a 10 para no saturar
-    if len(strings) > 10:
-        strings = strings[:10]
-    
-    # Construir resumen
-    resumen = []
-    if servicios:
-        resumen.append(f"**Servicios utilizados:** {', '.join(servicios[:5])}")
-    if funciones:
-        resumen.append(f"**Funciones/objetos detectados:** {', '.join(funciones[:8])}")
-    if eventos:
-        resumen.append(f"**Eventos detectados:** {', '.join(set(eventos)[:5])}")
-    if strings:
-        resumen.append(f"**Cadenas relevantes:** {', '.join([f'`{s}`' for s in strings[:5]])}")
-    
-    if not resumen:
-        resumen.append("⚠️ No se detectaron funciones específicas de Roblox. Puede ser un script ofuscado o no relacionado con Roblox.")
-    
-    return '\n'.join(resumen)
+    return code
 
 def deofuscador_general(code):
     """Aplica todas las técnicas de deofuscación en orden"""
     if 'polsec' in code.lower() or 'getpolsec' in code.lower():
         code = polsec_bypass_deobf(code)
-    
+
     code = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, code)
     code = expand_concatenaciones(code)
     code = simplificar_operaciones(code)
+    code = eliminar_funciones_anonimas(code)
     code = eliminar_loadstring_interno(code)
-    
+
     code = re.sub(r'\s+', ' ', code)
     code = re.sub(r'\n\s*\n', '\n', code)
     code = re.sub(r' +', ' ', code)
-    
+
     return code
 
 # =============================================
-# COMANDO .deobf (CON ANÁLISIS Y ENVÍO POR MD)
+# COMANDO .deobf (ENVÍA POR MD)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-    
+
+    # Verificar si el bot puede enviar MD al usuario
+    try:
+        dm_channel = await ctx.author.create_dm()
+        await dm_channel.send("⏳ Procesando tu script deofuscado...")
+    except discord.Forbidden:
+        await ctx.reply("❌ No puedo enviarte mensajes directos. Por favor, abre tus DMs y vuelve a intentarlo.")
+        return
+
     # Extraer URL
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     if not url_match:
@@ -820,72 +775,64 @@ async def deobf_command(ctx, *, loadstring):
         url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
     if not url_match:
         url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
-    
+
     if not url_match:
         await ctx.reply('❌ No se encontró una URL válida.\n'
                         'Ejemplo: `.deobf loadstring("URL")`\n'
                         'Ejemplo: `.deobf game:HttpGet("URL")`')
         return
-    
+
     url = url_match.group(1)
-    
-    async with ctx.typing():
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
-                    if response.status != 200:
-                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
-                        return
-                    
-                    content = await response.text()
-                    
-                    # Aplicar deofuscación
-                    deobfuscated = deofuscador_general(content)
-                    
-                    # Analizar el script
-                    analisis = analizar_script(deobfuscated)
-                    
-                    # Enviar análisis por MD al usuario
-                    try:
-                        embed_md = discord.Embed(
-                            title="📊 Análisis del script desofuscado",
-                            description=f"**URL:** {url}\n\n{analisis}",
-                            color=discord.Color.green()
-                        )
-                        embed_md.set_footer(text="Stick Hub - Deobfuscator")
-                        await ctx.author.send(embed=embed_md)
-                        await ctx.reply("✅ Te he enviado el análisis del script por mensaje directo.")
-                    except discord.Forbidden:
-                        await ctx.reply("⚠️ No pude enviarte el análisis por MD. Asegúrate de tener los MD abiertos.")
-                    
-                    # Si el código es largo, enviar como archivo
-                    if len(deobfuscated) > 1900:
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-                            f.write(deobfuscated)
-                            temp_path = f.name
-                        await ctx.reply(
-                            content=f'📄 **Script deofuscado**\n📎 URL: {url}\n📊 Tamaño: {len(deobfuscated)} caracteres\n⬇️ Descarga el archivo:',
-                            file=discord.File(temp_path)
-                        )
-                        os.unlink(temp_path)
-                    else:
-                        await ctx.reply(f'📄 **Script deofuscado**\n```lua\n{deobfuscated}\n```')
-                        
-        except asyncio.TimeoutError:
-            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
-        except Exception as e:
-            logger.error(f"Error en .deobf: {e}")
-            await ctx.reply(f'❌ Error: {str(e)[:200]}')
+
+    # Enviar mensaje de "procesando" en el canal
+    processing_msg = await ctx.reply("🔍 Descargando y deofuscando el script... Esto puede tomar unos segundos.")
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=15) as response:
+                if response.status != 200:
+                    await processing_msg.edit(content=f"❌ Error al descargar: código {response.status}")
+                    return
+
+                content = await response.text()
+
+                # Aplicar deofuscación
+                deobfuscated = deofuscador_general(content)
+
+                # Enviar el resultado por MD
+                dm_channel = await ctx.author.create_dm()
+                if len(deobfuscated) > 1900:
+                    # Si es muy largo, enviar como archivo
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+                        f.write(deobfuscated)
+                        temp_path = f.name
+                    await dm_channel.send(
+                        content=f"📄 **Script deofuscado**\n📎 URL: {url}\n📊 Tamaño: {len(deobfuscated)} caracteres\n⬇️ Descarga el archivo:",
+                        file=discord.File(temp_path)
+                    )
+                    os.unlink(temp_path)
+                else:
+                    # Enviar como mensaje de texto
+                    await dm_channel.send(f"📄 **Script deofuscado**\n```lua\n{deobfuscated}\n```")
+
+                # Confirmar en el canal
+                await processing_msg.edit(content="✅ **Script deofuscado enviado por MD.** Revisa tus mensajes directos.")
+
+    except asyncio.TimeoutError:
+        await processing_msg.edit(content="❌ ⏰ Tiempo de espera agotado.")
+    except Exception as e:
+        logger.error(f"Error en .deobf: {e}")
+        await processing_msg.edit(content=f"❌ Error: {str(e)[:200]}")
 
 # =============================================
-# COMANDO .get
+# COMANDO .get (SIN BYPASS - SOLO MUESTRA EL CONTENIDO)
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-    
+
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     if not url_match:
         url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
@@ -893,7 +840,7 @@ async def get_content(ctx, *, loadstring):
         url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
     if not url_match:
         url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
-    
+
     if not url_match:
         await ctx.reply('❌ No se encontró una URL válida.\n'
                         'Formatos soportados:\n'
@@ -901,9 +848,9 @@ async def get_content(ctx, *, loadstring):
                         '• `.get game:HttpGet("URL")`\n'
                         '• `.get URL`')
         return
-    
+
     url = url_match.group(1)
-    
+
     async with ctx.typing():
         try:
             async with aiohttp.ClientSession() as session:
@@ -911,9 +858,9 @@ async def get_content(ctx, *, loadstring):
                     if response.status != 200:
                         await ctx.reply(f"❌ Error: código {response.status}")
                         return
-                    
+
                     content = await response.text()
-                    
+
                     if len(content) > 1900:
                         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
                             f.write(content)
@@ -925,7 +872,7 @@ async def get_content(ctx, *, loadstring):
                         os.unlink(temp_path)
                     else:
                         await ctx.reply(f'📄 **Contenido de:** {url}\n```lua\n{content}\n```')
-                        
+
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
         except Exception as e:
@@ -940,10 +887,10 @@ async def gethelp_command(ctx):
     if ctx.channel.id != CANAL_GET_ID:
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
-    
+
     embed = discord.Embed(
         title='📚 Ayuda del Bot - Get Loadstring',
-        description='Obtén el contenido de loadstrings y deofusca scripts con análisis',
+        description='Obtén el contenido de loadstrings y deofusca scripts',
         color=discord.Color.orange()
     )
     embed.add_field(
@@ -953,7 +900,7 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🔧 .deobf',
-        value='Descarga el script, lo desofusca y envía un análisis por MD.\nEjemplo: `.deobf loadstring("URL")`',
+        value='Descarga el script, aplica deofuscación y te lo envía por mensaje directo (MD).\nEjemplo: `.deobf loadstring("URL")`',
         inline=False
     )
     embed.add_field(
@@ -961,54 +908,54 @@ async def gethelp_command(ctx):
         value='Muestra esta ayuda.',
         inline=False
     )
-    embed.set_footer(text='Stick Hub - Deobfuscator')
+    embed.set_footer(text='Bot creado para obtener y deofuscar código Lua')
     embed.timestamp = discord.utils.utcnow()
-    
+
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK
+# COMANDOS STICK (resumidos)
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
     if args is None:
         await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
-    
+
     if not tiene_rol_permitido(ctx.author):
         await ctx.send("❌ No tienes el rol necesario para usar este comando.")
         return
-    
+
     partes = args.split()
     if len(partes) < 1:
         await ctx.send("❌ Uso: `!stick warn/ban/mute/unmute/unwarn @usuario`")
         return
-    
+
     comando = partes[0].lower()
-    
+
     if comando == 'ban' and len(partes) >= 2 and partes[1].lower() == 'all':
         if not ctx.guild.me.guild_permissions.ban_members:
             await ctx.send("❌ El bot no tiene permisos para banear miembros.")
             return
-        
+
         await ctx.send(
             f"⚠️ **¿ESTÁS SEGURO?**\n"
             f"Esto baneará a **TODOS** los miembros del servidor.\n"
             f"Esta acción es **IRREVERSIBLE**.\n\n"
             f"Para confirmar, escribe `!stick confirmar ban all` en los próximos 30 segundos."
         )
-        
+
         def check(m):
             return m.author == ctx.author and m.content.lower() == '!stick confirmar ban all' and m.channel == ctx.channel
-        
+
         try:
             await bot.wait_for('message', timeout=30.0, check=check)
         except asyncio.TimeoutError:
             await ctx.send("❌ Tiempo de confirmación agotado. Baneo cancelado.")
             return
-        
+
         resultado = await ban_all_members(ctx.guild, ctx.author, "Baneo masivo por comando stick")
-        
+
         embed = discord.Embed(
             title="✅ BANEO MASIVO COMPLETADO",
             description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1027,7 +974,7 @@ async def stick_cmd(ctx, *, args=None):
                 errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
             embed.add_field(name="Errores", value=errores_texto, inline=False)
         await ctx.send(embed=embed)
-        
+
         canal_logs = bot.get_channel(CANAL_LOGS_ID)
         if canal_logs:
             log_embed = discord.Embed(
@@ -1039,20 +986,20 @@ async def stick_cmd(ctx, *, args=None):
                 timestamp=datetime.now()
             )
             await canal_logs.send(embed=log_embed)
-        
+
         logger.info(f"🔨 Baneo masivo por stick ejecutado por {ctx.author.name}: {resultado['baneados']} baneados")
         return
-    
+
     if len(ctx.message.mentions) == 0:
         await ctx.send("❌ Debes mencionar a un usuario: `!stick warn/unwarn/ban/mute/unmute @usuario`")
         return
-    
+
     user = ctx.message.mentions[0]
-    
+
     if es_exento(user):
         await ctx.send(f"🛡️ {user.mention} tiene un rol exento. No se puede aplicar moderación.")
         return
-    
+
     if comando == 'warn':
         warns = cargar_warns()
         user_id = str(user.id)
@@ -1076,7 +1023,7 @@ async def stick_cmd(ctx, *, args=None):
                 guardar_warns(warns)
             except Exception as e:
                 await ctx.send(f"❌ Error al banear: {e}")
-    
+
     elif comando == 'unwarn':
         warns = cargar_warns()
         user_id = str(user.id)
@@ -1088,7 +1035,7 @@ async def stick_cmd(ctx, *, args=None):
             del warns[user_id]
         guardar_warns(warns)
         await ctx.send(f"✅ Se ha quitado un warn a {user.mention}. Ahora tiene {warns.get(user_id, 0)}.")
-    
+
     elif comando == 'mute':
         if len(partes) < 2:
             await ctx.send("❌ Uso: `!stick mute @usuario 5m razón`")
@@ -1123,7 +1070,7 @@ async def stick_cmd(ctx, *, args=None):
             except Exception as e:
                 print(f"Error al desmutear: {e}")
         bot.loop.create_task(desmutear())
-    
+
     elif comando == 'unmute':
         mute_role = await get_mute_role(ctx.guild)
         if mute_role in user.roles:
@@ -1134,7 +1081,7 @@ async def stick_cmd(ctx, *, args=None):
             await ctx.send(f"🔊 {user.mention} ha sido desmuteado")
         else:
             await ctx.send(f"ℹ️ {user.mention} no está muteado")
-    
+
     elif comando == 'ban':
         bot_member = ctx.guild.me
         if not bot_member.guild_permissions.ban_members:
@@ -1157,7 +1104,7 @@ async def stick_cmd(ctx, *, args=None):
             await ctx.send(f"✅ {user.mention} ha sido baneado correctamente.")
         except Exception as e:
             await ctx.send(f"❌ Error al banear: {e}")
-    
+
     else:
         await ctx.send("❌ Comando no reconocido. Usa: warn, unwarn, ban, mute, unmute")
 
@@ -1174,10 +1121,10 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
-    
+
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
-    
+
     try:
         await bot.tree.sync()
         print(f'✅ Slash commands sincronizados globalmente')
@@ -1189,25 +1136,25 @@ async def on_ready():
                 print(f'❌ Error al sincronizar en {guild.name}: {e}')
     except Exception as e:
         print(f'❌ Error al sincronizar slash commands: {e}')
-    
+
     canal_ia = bot.get_channel(CANAL_IA_ID)
     if canal_ia:
         print(f'✅ Canal de IA encontrado: {canal_ia.name}')
     else:
         print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
-    
+
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         print(f'✅ Canal de logs encontrado: {canal_logs.name}')
     else:
         print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
-    
+
     canal_get = bot.get_channel(CANAL_GET_ID)
     if canal_get:
         print(f'✅ Canal para comandos .get y .deobf encontrado: {canal_get.name}')
     else:
         print(f'❌ Canal para comandos .get y .deobf NO encontrado. Verifica el ID: {CANAL_GET_ID}')
-    
+
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
         try:
@@ -1216,7 +1163,7 @@ async def on_ready():
                     await msg.delete()
         except:
             pass
-        
+
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
@@ -1251,14 +1198,14 @@ async def on_ready():
         print("❌ Canal de panel no encontrado. Verifica el ID.")
 
 # =============================================
-# EVENTOS
+# EVENTOS Y SLASH COMMANDS (resumidos)
 # =============================================
 @bot.event
 async def on_member_join(member):
     current_time = datetime.now().timestamp()
     raid_detection[member.guild.id].append(current_time)
     raid_detection[member.guild.id] = [
-        t for t in raid_detection[member.guild.id] 
+        t for t in raid_detection[member.guild.id]
         if current_time - t < RAID_TIME_LIMIT
     ]
     if len(raid_detection[member.guild.id]) > RAID_JOIN_LIMIT:
@@ -1272,7 +1219,7 @@ async def on_member_join(member):
             )
             await canal_logs.send(embed=embed)
         print(f"🚨 Posible raid detectado en {member.guild.name}: {len(raid_detection[member.guild.id])} miembros")
-    
+
     try:
         rol = member.guild.get_role(AUTO_ROLE_ID)
         if rol:
@@ -1284,7 +1231,7 @@ async def on_member_join(member):
         print(f"❌ No tengo permisos para asignar roles en {member.guild.name}")
     except discord.HTTPException as e:
         print(f"❌ Error al asignar rol: {e}")
-    
+
     canal = bot.get_channel(CANAL_BIENVENIDA)
     if canal:
         embed = discord.Embed(
@@ -1295,7 +1242,7 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text=f"Miembro #{member.guild.member_count}")
         await canal.send(embed=embed)
-    
+
     key = f"{member.guild.id}_{member.id}"
     if key in mutes_activos:
         end_time = mutes_activos[key]
@@ -1459,7 +1406,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS
+# SLASH COMMANDS (resumidos)
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
