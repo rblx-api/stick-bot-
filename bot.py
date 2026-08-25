@@ -9,6 +9,7 @@ import aiohttp
 import logging
 from datetime import datetime
 import asyncio
+import tempfile
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -55,6 +56,11 @@ CATEGORIA_TICKETS_ID = 1536466416851488828
 CANAL_SUGERENCIAS_ID = 1536466416851488828
 CANAL_LOGS_ID = 1517328591732477962
 
+# =============================================
+# CANAL PARA EL COMANDO .get (NUEVO)
+# =============================================
+CANAL_GET_ID = 1541804529694285975  # Canal donde funciona .get
+
 # Archivos de datos
 ARCHIVO_WARNS = 'warns.json'
 ARCHIVO_BLACKLIST = 'blacklist.json'
@@ -70,7 +76,7 @@ intents.members = True
 intents.guild_messages = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='.', intents=intents)  # Cambiado a '.' para el comando .get
 
 tickets_activos = {}
 spam_counter = defaultdict(list)
@@ -178,7 +184,7 @@ def contiene_palabras_prohibidas(texto):
     return False
 
 async def aplicar_warn(member, razon, canal=None):
-    # Verificar si el miembro es exento
+    # Verificar si el miembro es exento (NO se aplica warn)
     if es_exento(member):
         if canal:
             await canal.send(f"🛡️ {member.mention} tiene un rol exento, no se aplica warn.")
@@ -317,7 +323,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODALES PARA TICKETS (ACTUALIZADO)
+# MODALES PARA TICKETS
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -361,6 +367,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             guild = interaction.guild
             usuario = self.usuario
 
+            # Verificar si el usuario ya tiene un ticket abierto
             for channel_id, data in tickets_activos.items():
                 if data['usuario_id'] == usuario.id and data['abierto']:
                     await interaction.followup.send("❌ Ya tienes un ticket abierto. Ciérralo antes de abrir otro.", ephemeral=True)
@@ -374,6 +381,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
             
+            # Agregar todos los roles permitidos al ticket
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -389,6 +397,7 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
                 'canal': canal
             }
 
+            # Diccionario de nombres para el embed
             nombres = {
                 "web": "🌐 Quiero hacer mi web",
                 "script": "💻 Quiero hacer mi propio script",
@@ -398,14 +407,15 @@ class PreguntaModal(ui.Modal, title="Responde la pregunta"):
             }
 
             embed = discord.Embed(
-                title=f"Ticket de {usuario.name}",
+                title=f"🎫 Ticket de {usuario.name}",
                 description=f"**Tipo:** {nombres.get(self.tipo_ticket, self.tipo_ticket)}\n\n**Respuesta:** {respuesta}\n\n*Un miembro del staff te atenderá.*",
-                color=discord.Color.blue()
+                color=discord.Color.orange()  # Color naranja
             )
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
 
             view = TicketButtons(usuario.id, canal.id)
             
+            # Mencionar todos los roles permitidos
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
             
             await canal.send(
@@ -434,18 +444,43 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTAS DE TICKETS (ACTUALIZADO)
+# VISTAS DE TICKETS (CON COLOR NARANJA EN OPCIONES)
 # =============================================
 class TicketSelect(ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Quiero hacer mi web", value="web", description="Solicita la creación de tu página web", emoji="🌐"),
-            discord.SelectOption(label="Quiero hacer mi propio script", value="script", description="Solicita la creación de un script a medida", emoji="💻"),
-            discord.SelectOption(label="Quiero hacer mi bot", value="bot", description="Solicita la creación de un bot personalizado", emoji="🤖"),
-            discord.SelectOption(label="Configurar comunidad de Discord", value="comunidad", description="Solicita la configuración de tu comunidad en Discord", emoji="🏘️"),
-            discord.SelectOption(label="Quiero hacer alianza", value="alianza", description="Solicita una alianza con tu servidor", emoji="🤝"),
+            discord.SelectOption(
+                label="Quiero hacer mi web",
+                value="web",
+                description="Solicita la creación de tu página web",
+                emoji="🌐"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer mi propio script",
+                value="script",
+                description="Solicita la creación de un script a medida",
+                emoji="💻"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer mi bot",
+                value="bot",
+                description="Solicita la creación de un bot personalizado",
+                emoji="🤖"
+            ),
+            discord.SelectOption(
+                label="Configurar comunidad de Discord",
+                value="comunidad",
+                description="Solicita la configuración de tu comunidad en Discord",
+                emoji="🏘️"
+            ),
+            discord.SelectOption(
+                label="Quiero hacer alianza",
+                value="alianza",
+                description="Solicita una alianza con tu servidor",
+                emoji="🤝"
+            ),
         ]
-        super().__init__(placeholder="Elige una opción...", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="🔸 Elige una opción...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         valor = self.values[0]
@@ -511,7 +546,7 @@ class TicketButtons(ui.View):
             embed = discord.Embed(
                 title="📌 Ticket reclamado",
                 description=f"**{usuario.mention if usuario else 'Usuario'}, tu ticket ha sido reclamado por {interaction.user.mention}**\n\nEl staff se encargará de tu caso.",
-                color=discord.Color.green()
+                color=discord.Color.orange()
             )
             await canal.send(embed=embed)
 
@@ -608,7 +643,96 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# EVENTO ON_READY (PANEL ACTUALIZADO)
+# COMANDO .get (SOLO FUNCIONA EN EL CANAL ESPECÍFICO)
+# =============================================
+@bot.command(name='get')
+async def get_content(ctx, *, loadstring):
+    # Verificar que el comando se use en el canal correcto
+    if ctx.channel.id != CANAL_GET_ID:
+        await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
+        return
+    
+    # Extraer URL del loadstring
+    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
+    
+    if not url_match:
+        await ctx.reply('❌ No se encontró una URL válida en el loadstring.\nEjemplo: `.get loadstring("https://ejemplo.com/script.lua")`')
+        return
+    
+    url = url_match.group(1)
+    
+    async with ctx.typing():
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        error_msg = f'❌ Error: Código {response.status}'
+                        if response.status == 404:
+                            error_msg += ' - URL no encontrada'
+                        elif response.status == 403:
+                            error_msg += ' - Acceso denegado'
+                        await ctx.reply(error_msg)
+                        return
+                    
+                    content = await response.text()
+                    
+                    # Si el contenido es muy largo, enviar como archivo
+                    if len(content) > 1900:
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as temp_file:
+                            temp_file.write(content)
+                            temp_path = temp_file.name
+                        
+                        await ctx.reply(
+                            content=f'📄 **El archivo es muy largo.**\n📎 **URL:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n⬇️ Descarga el archivo completo:',
+                            file=discord.File(temp_path)
+                        )
+                        
+                        os.unlink(temp_path)
+                    else:
+                        await ctx.reply(f'📄 **Contenido de:** {url}\n📊 **Tamaño:** {len(content)} caracteres\n```lua\n{content}\n```')
+                        
+        except TimeoutError:
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
+        except Exception as e:
+            await ctx.reply(f'❌ Error: {str(e)}')
+
+# =============================================
+# COMANDO .help (SOLO FUNCIONA EN EL CANAL ESPECÍFICO)
+# =============================================
+@bot.command(name='help')
+async def help_command(ctx):
+    # Verificar que el comando se use en el canal correcto
+    if ctx.channel.id != CANAL_GET_ID:
+        await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
+        return
+    
+    embed = discord.Embed(
+        title='📚 Ayuda del Bot - Get Loadstring',
+        description='Obtén el contenido de cualquier loadstring de Lua',
+        color=discord.Color.orange()
+    )
+    embed.add_field(
+        name='🎯 .get',
+        value='Obtiene el contenido de un loadstring\nEjemplo: `.get loadstring("https://ejemplo.com/script.lua")`',
+        inline=False
+    )
+    embed.add_field(
+        name='📝 .help',
+        value='Muestra este mensaje de ayuda',
+        inline=False
+    )
+    embed.add_field(
+        name='📊 Información',
+        value='• Máximo tamaño: 10MB\n• Archivos largos se envían como .txt\n• Soporte para cualquier URL pública',
+        inline=False
+    )
+    embed.set_footer(text='Bot creado para obtener código de loadstrings')
+    embed.timestamp = discord.utils.utcnow()
+    
+    await ctx.reply(embed=embed)
+
+# =============================================
+# EVENTO ON_READY (PANEL CON COLOR NARANJA)
 # =============================================
 @bot.event
 async def on_ready():
@@ -619,6 +743,7 @@ async def on_ready():
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
+    print(f'📥 Comando .get funcionará en el canal: <#{CANAL_GET_ID}>')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -647,6 +772,12 @@ async def on_ready():
     else:
         print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
     
+    canal_get = bot.get_channel(CANAL_GET_ID)
+    if canal_get:
+        print(f'✅ Canal para .get encontrado: {canal_get.name}')
+    else:
+        print(f'❌ Canal para .get NO encontrado. Verifica el ID: {CANAL_GET_ID}')
+    
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
         try:
@@ -659,60 +790,30 @@ async def on_ready():
         embed = discord.Embed(
             title="═══════════════════════════════════════════════════════════",
             description=(
-                "🌐💻🤖🏘️🤝  𝐀𝐁𝐑𝐄 𝐓𝐈𝐂𝐊𝐄𝐓  𝐏𝐀𝐑𝐀  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓,  𝐂𝐎𝐌𝐔𝐍𝐈𝐃𝐀𝐃  𝐎  𝐀𝐋𝐈𝐀𝐍𝐙𝐀  🌐💻🤖🏘️🤝\n"
+                "🔸🔸🔸  𝐀𝐁𝐑𝐄 𝐓𝐔 𝐓𝐈𝐂𝐊𝐄𝐓  🔸🔸🔸\n"
                 "═══════════════════════════════════════════════════════════\n\n"
-                "   🌐  ¿Quieres crear una página web?\n"
-                "   ✅  Diseño profesional y personalizado\n"
-                "   ✅  Desarrollo a medida (HTML, CSS, JS, etc.)\n"
-                "   ✅  Asesoría y soporte durante todo el proceso\n\n"
-                "   💻  ¿Quieres hacer tu propio script?\n"
-                "   ✅  Scripts a medida para tus necesidades\n"
-                "   ✅  Lenguajes: Python, JavaScript, Lua, etc.\n"
-                "   ✅  Soporte y optimización incluidos\n\n"
-                "   🤖  ¿Quieres hacer tu propio bot?\n"
-                "   ✅  Bots personalizados para Discord, Telegram, etc.\n"
-                "   ✅  Funcionalidades a tu medida\n"
-                "   ✅  Soporte y mantenimiento continuo\n\n"
-                "   🏘️  ¿Quieres configurar tu comunidad de Discord?\n"
-                "   ✅  Configuración completa de tu servidor\n"
-                "   ✅  Roles, canales, reglas y más\n"
-                "   ✅  Asesoría profesional para tu comunidad\n\n"
-                "   🤝  ¿Quieres hacer una alianza?\n"
-                "   ✅  Alianzas estratégicas con tu servidor\n"
-                "   ✅  Coordinación y colaboración mutua\n"
-                "   ✅  Beneficios para ambas comunidades\n\n"
+                "   🌐  Quiero hacer mi web\n"
+                "   💻  Quiero hacer mi propio script\n"
+                "   🤖  Quiero hacer mi bot\n"
+                "   🏘️  Configurar comunidad de Discord\n"
+                "   🤝  Quiero hacer alianza\n\n"
                 "   📩  ¡ABRE TU TICKET Y CUÉNTANOS TU IDEA!\n"
                 "   👉  Elige una opción en el menú desplegable\n\n"
                 "═══════════════════════════════════════════════════════════\n"
-                "   🌐💻🤖🏘️🤝  𝐎𝐏𝐄𝐍  𝐀  𝐓𝐈𝐂𝐊𝐄𝐓  𝐅𝐎𝐑  𝐖𝐄𝐁,  𝐒𝐂𝐑𝐈𝐏𝐓,  𝐁𝐎𝐓,  𝐂𝐎𝐌𝐌𝐔𝐍𝐈𝐓𝐘  𝐎𝐑  𝐀𝐋𝐋𝐈𝐀𝐍𝐂𝐄  🌐💻🤖🏘️🤝\n"
+                "   🔸🔸🔸  𝐎𝐏𝐄𝐍 𝐘𝐎𝐔𝐑 𝐓𝐈𝐂𝐊𝐄𝐓  🔸🔸🔸\n"
                 "═══════════════════════════════════════════════════════════\n\n"
-                "   🌐  Do you want to create a website?\n"
-                "   ✅  Professional and custom design\n"
-                "   ✅  Custom development (HTML, CSS, JS, etc.)\n"
-                "   ✅  Advice and support throughout the process\n\n"
-                "   💻  Do you want to make your own script?\n"
-                "   ✅  Custom scripts for your needs\n"
-                "   ✅  Languages: Python, JavaScript, Lua, etc.\n"
-                "   ✅  Support and optimization included\n\n"
-                "   🤖  Do you want to make your own bot?\n"
-                "   ✅  Custom bots for Discord, Telegram, etc.\n"
-                "   ✅  Tailored functionalities\n"
-                "   ✅  Ongoing support and maintenance\n\n"
-                "   🏘️  Do you want to set up your Discord community?\n"
-                "   ✅  Complete server configuration\n"
-                "   ✅  Roles, channels, rules and more\n"
-                "   ✅  Professional advice for your community\n\n"
-                "   🤝  Do you want to make an alliance?\n"
-                "   ✅  Strategic alliances with your server\n"
-                "   ✅  Coordination and mutual collaboration\n"
-                "   ✅  Benefits for both communities\n\n"
+                "   🌐  I want to make my website\n"
+                "   💻  I want to make my own script\n"
+                "   🤖  I want to make my bot\n"
+                "   🏘️  Set up Discord community\n"
+                "   🤝  I want to make an alliance\n\n"
                 "   📩  OPEN YOUR TICKET AND TELL US YOUR IDEA!\n"
                 "   👉  Choose an option from the dropdown menu\n\n"
                 "═══════════════════════════════════════════════════════════"
             ),
-            color=discord.Color.gold()
+            color=discord.Color.orange()  # Color naranja
         )
-        embed.set_footer(text="Selecciona una opción en el menú desplegable para abrir tu ticket.")
+        embed.set_footer(text="🔸 Selecciona una opción en el menú desplegable para abrir tu ticket.")
         view = PanelView()
         await canal_panel.send(embed=embed, view=view)
         print(f"✅ Panel enviado a {canal_panel.name}")
@@ -876,7 +977,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Verificar blacklist (los exentos también pueden estar en blacklist)
+    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -907,7 +1008,10 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # Sistema de moderación automática (SOLO si NO es exento)
+    # =============================================
+    # SISTEMA DE MODERACIÓN AUTOMÁTICA
+    # SOLO se aplica si el usuario NO es exento
+    # =============================================
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -1263,7 +1367,7 @@ async def slash_poll(
     embed = discord.Embed(
         title="📊 Encuesta",
         description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
-        color=discord.Color.blue()
+        color=discord.Color.orange()
     )
     embed.set_footer(text=f"Encuesta creada por {interaction.user.name} | {datetime.now().strftime('%d/%m/%Y')}")
     await interaction.response.send_message(embed=embed)
@@ -1319,7 +1423,7 @@ async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Memb
         miembro = interaction.user
     embed = discord.Embed(
         title=f"ℹ️ Información de {miembro.name}",
-        color=miembro.color if miembro.color != discord.Color.default() else discord.Color.blue()
+        color=miembro.color if miembro.color != discord.Color.default() else discord.Color.orange()
     )
     embed.set_thumbnail(url=miembro.display_avatar.url)
     embed.add_field(name="📛 Nombre", value=miembro.name, inline=True)
