@@ -11,8 +11,6 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
-import base64
-import zlib
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -146,7 +144,7 @@ def guardar_json(archivo, datos):
         logger.error(f"Error guardando {archivo}: {e}")
 
 # =============================================
-# FUNCIONES DE MODERACIÓN (RESUMIDAS PARA AHORRAR)
+# FUNCIONES DE MODERACIÓN (RESUMIDAS)
 # =============================================
 def contiene_link(texto):
     patrones = [
@@ -622,9 +620,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
 # =============================================
 # FUNCIONES DE DEOFUSCACIÓN
 # =============================================
-
 def evaluar_string_char(match):
-    """Convierte string.char(...) en una cadena literal"""
     args = match.group(1)
     try:
         numeros = [int(n.strip()) for n in args.split(',')]
@@ -633,7 +629,6 @@ def evaluar_string_char(match):
         return match.group(0)
 
 def expand_concatenaciones(code):
-    """Expande concatenaciones de cadenas con .. en una sola cadena"""
     def reemplazar_concat(match):
         left = match.group(1)
         right = match.group(2)
@@ -643,7 +638,6 @@ def expand_concatenaciones(code):
                 r = right[1:-1]
                 return f'"{l}{r}"'
         return match.group(0)
-    
     pattern = r'(["\'][^"\']*["\'])\s*\.\.\s*(["\'][^"\']*["\'])'
     for _ in range(10):
         nuevo = re.sub(pattern, reemplazar_concat, code)
@@ -653,7 +647,6 @@ def expand_concatenaciones(code):
     return code
 
 def simplificar_operaciones(code):
-    """Simplifica operaciones matemáticas básicas"""
     def eval_expr(match):
         expr = match.group(1)
         try:
@@ -663,7 +656,6 @@ def simplificar_operaciones(code):
             return match.group(0)
         except:
             return match.group(0)
-    
     code = re.sub(r'\(([\d+\-*/()\s]+)\)', eval_expr, code)
     code = re.sub(r'(\d+\s*[\+\-\*/]\s*\d+)', eval_expr, code)
     return code
@@ -694,7 +686,6 @@ def polsec_bypass_deobf(code):
     fake_key = '"BYPASSED_BY_STICK_HUB"'
     prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
     code = prefix + code
-    
     patrones = [
         r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
         r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
@@ -705,7 +696,6 @@ def polsec_bypass_deobf(code):
     ]
     for p in patrones:
         code = re.sub(p, '', code, flags=re.IGNORECASE | re.DOTALL)
-    
     code = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', code)
     code = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', code)
@@ -716,16 +706,13 @@ def polsec_bypass_deobf(code):
     code = re.sub(r'script_key\s*~=\s*nil', 'true', code)
     code = re.sub(r'not\s+key\b', 'false', code)
     code = re.sub(r'not\s+script_key\b', 'false', code)
-    
     code = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
     code = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-    
     code = re.sub(r'if\s*\([^)]*getfenv[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'if\s*\([^)]*loadstring[^)]*\)\s+then[^{]*?end', '', code, flags=re.IGNORECASE | re.DOTALL)
     code = re.sub(r'debug\s*\.\s*getinfo\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
     code = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
-    
     return code
 
 def deofuscador_general(code):
@@ -742,79 +729,10 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# COMANDO .deobf (CON LOGGER Y ENVÍO POR MD)
-# =============================================
-@bot.command(name='deobf')
-async def deobf_command(ctx, *, loadstring):
-    if ctx.channel.id != CANAL_GET_ID:
-        await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
-        return
-    
-    # Extraer URL
-    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
-    if not url_match:
-        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
-    if not url_match:
-        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
-    if not url_match:
-        url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
-    
-    if not url_match:
-        await ctx.reply('❌ No se encontró una URL válida.\n'
-                        'Ejemplo: `.deobf loadstring("URL")`')
-        return
-    
-    url = url_match.group(1)
-    
-    async with ctx.typing():
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
-                    if response.status != 200:
-                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
-                        return
-                    
-                    content = await response.text()
-                    deobfuscated = deofuscador_general(content)
-                    
-                    # Crear webhook en el canal de logs
-                    canal_logs = bot.get_channel(CANAL_LOGS_ID)
-                    if not canal_logs:
-                        await ctx.reply("❌ No se encontró el canal de logs.")
-                        return
-                    
-                    webhook_name = f"deobf-{ctx.author.id}"
-                    webhook = await canal_logs.create_webhook(name=webhook_name)
-                    deobf_webhooks[webhook.id] = ctx.author.id
-                    
-                    # Generar script logger
-                    script_logger = generar_script_logger(deobfuscated, webhook.url)
-                    
-                    # Enviar al usuario por MD
-                    try:
-                        await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor y el log te llegará por aquí:\n```lua\n{script_logger}\n```")
-                    except discord.Forbidden:
-                        await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
-                        # Eliminar webhook si no se pudo enviar
-                        await webhook.delete()
-                        del deobf_webhooks[webhook.id]
-                        return
-                    
-                    # Responder en el canal
-                    await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
-                    
-        except asyncio.TimeoutError:
-            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
-        except Exception as e:
-            logger.error(f"Error en .deobf: {e}")
-            await ctx.reply(f'❌ Error: {str(e)[:200]}')
-
-# =============================================
-# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (TEMPLATE)
+# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER
 # =============================================
 def generar_script_logger(script_code, webhook_url):
-    # Escapar el script para insertarlo como cadena literal
-    escaped_script = json.dumps(script_code)  # esto lo convierte en string con escapes
+    escaped_script = json.dumps(script_code)
     
     logger_template = f"""
 -- Logger de entorno (Garama style) con envío a webhook
@@ -1099,7 +1017,6 @@ if log_content ~= "" then
                 Body = json
             }})
         else
-            -- Fallback con game:HttpGet (POST)
             game:HttpGet(webhook_url .. "?content=" .. HttpService:URLEncode("```lua\\n" .. log_content .. "\\n```"))
         end
     end)
@@ -1112,10 +1029,82 @@ else
     print("[Logger] No se generó log.")
 end
 """
-    # Reemplazar placeholders
     logger_template = logger_template.replace("{escaped_script}", escaped_script)
     logger_template = logger_template.replace("{webhook_url}", webhook_url)
     return logger_template
+
+# =============================================
+# COMANDO .deobf (CON LOGGER Y ENVÍO POR MD COMO ARCHIVO SI ES LARGO)
+# =============================================
+@bot.command(name='deobf')
+async def deobf_command(ctx, *, loadstring):
+    if ctx.channel.id != CANAL_GET_ID:
+        await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
+        return
+    
+    url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
+    if not url_match:
+        url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
+    
+    if not url_match:
+        await ctx.reply('❌ No se encontró una URL válida.\n'
+                        'Ejemplo: `.deobf loadstring("URL")`')
+        return
+    
+    url = url_match.group(1)
+    
+    async with ctx.typing():
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=15) as response:
+                    if response.status != 200:
+                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
+                        return
+                    
+                    content = await response.text()
+                    deobfuscated = deofuscador_general(content)
+                    
+                    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                    if not canal_logs:
+                        await ctx.reply("❌ No se encontró el canal de logs.")
+                        return
+                    
+                    webhook_name = f"deobf-{ctx.author.id}"
+                    webhook = await canal_logs.create_webhook(name=webhook_name)
+                    deobf_webhooks[webhook.id] = ctx.author.id
+                    
+                    script_logger = generar_script_logger(deobfuscated, webhook.url)
+                    
+                    try:
+                        # Si el script logger supera el límite de 4000 caracteres, enviarlo como archivo
+                        if len(script_logger) > 4000:
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+                                f.write(script_logger)
+                                temp_path = f.name
+                            await ctx.author.send(
+                                content="📄 **Script logger generado** (archivo adjunto)",
+                                file=discord.File(temp_path)
+                            )
+                            os.unlink(temp_path)
+                        else:
+                            await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor y el log te llegará por aquí:\n```lua\n{script_logger}\n```")
+                    except discord.Forbidden:
+                        await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
+                        await webhook.delete()
+                        del deobf_webhooks[webhook.id]
+                        return
+                    
+                    await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
+                    
+        except asyncio.TimeoutError:
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
+        except Exception as e:
+            logger.error(f"Error en .deobf: {e}")
+            await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
 # COMANDO .get (SIN BYPASS)
@@ -1496,30 +1485,19 @@ async def on_ready():
 # =============================================
 @bot.event
 async def on_message(message):
-    # Si el mensaje es de un webhook y está en el canal de logs
     if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
-        # Verificar si el webhook está en nuestro diccionario
         if message.webhook_id in deobf_webhooks:
             user_id = deobf_webhooks[message.webhook_id]
             user = bot.get_user(user_id)
             if user:
-                # Reenviar el contenido al usuario por MD
                 try:
-                    # Extraer el contenido del log (eliminar el bloque de código si existe)
                     content = message.content
                     if content.startswith('```lua') and content.endswith('```'):
-                        content = content[7:-3]  # quitar ```lua y ```
+                        content = content[7:-3]
                     await user.send(f"📥 **Log capturado:**\n```lua\n{content}\n```")
-                    # Opcional: eliminar el webhook después de usarlo
-                    # await message.channel.fetch_webhook(message.webhook_id).delete()
-                    # del deobf_webhooks[message.webhook_id]
                 except Exception as e:
                     logger.error(f"Error al enviar log a {user}: {e}")
-            else:
-                # Usuario no encontrado
-                pass
     
-    # Procesar el resto de mensajes (comandos, etc.)
     await bot.process_commands(message)
 
 # =============================================
@@ -1657,7 +1635,7 @@ async def on_member_unban(guild, user):
         print(f"❌ Error al enviar log de unban: {e}")
 
 # =============================================
-# SLASH COMMANDS (resumidos)
+# SLASH COMMANDS (resumidos - igual que antes)
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
