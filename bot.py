@@ -144,7 +144,7 @@ def guardar_json(archivo, datos):
         logger.error(f"Error guardando {archivo}: {e}")
 
 # =============================================
-# FUNCIONES DE MODERACIÓN (RESUMIDAS)
+# FUNCIONES DE MODERACIÓN
 # =============================================
 def contiene_link(texto):
     patrones = [
@@ -321,7 +321,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# TICKETS - MODALES, VISTAS (SIN CAMBIOS)
+# TICKETS - MODALES, VISTAS (sin cambios)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -729,13 +729,16 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER
+# GENERAR SCRIPT LOGGER (CORREGIDO)
 # =============================================
 def generar_script_logger(script_code, webhook_url):
-    escaped_script = json.dumps(script_code)
+    # Escapamos el script para que sea una cadena literal Lua válida
+    # Reemplazamos ]]- para que no cierre el bloque [[ ... ]]
+    escaped = script_code.replace(']]', '] ]')
     
     logger_template = f"""
 -- Logger de entorno (Garama style) con envío a webhook
+-- Generado por Stick Hub .deobf
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -754,7 +757,7 @@ local function formatlog(text)
     return text:gsub('table: ','')
             :gsub('function: ','')
             :gsub('Ugc','game')
-            :gsub('\\\\n','')
+            :gsub('\\n','')
             :gsub('%s%s+',';')
             :gsub('""','')
             :gsub('Data Ping', 'DataPing')
@@ -816,7 +819,7 @@ local function log(upvals, ...)
     upvalscache = upvals
     formatedcache = formated
     kirked[charliekirk] = true
-    appendfile('logged.txt', logged..'\\\\n')
+    appendfile('logged.txt', logged..'\\n')
 end
 
 isfunctionhooked = nil
@@ -983,20 +986,28 @@ print = newcclosure(function(...)
 end)
 
 print("[Logger] Ejecutando script deofuscado...")
-print("[Logger] Todas las llamadas a la API serán registradas.")
 
--- Inyectar el script deofuscado
-local script_code = {escaped_script}
-loadstring(script_code)()
+-- Inyectar el script deofuscado usando [[ ... ]]
+local script_code = [[
+{escaped_script}
+]]
+local success, err = pcall(function()
+    loadstring(script_code)()
+end)
+if not success then
+    print("[Logger] Error al ejecutar el script: " .. tostring(err))
+else
+    print("[Logger] Script ejecutado correctamente.")
+end
 
-print("[Logger] Script ejecutado. Enviando log al webhook...")
+print("[Logger] Enviando log al webhook...")
 
 -- Enviar log al webhook
 local webhook_url = "{webhook_url}"
 local log_content = readfile("logged.txt") or ""
 if log_content ~= "" then
     local data = {{
-        content = "```lua\\\\n" .. log_content .. "\\\\n```"
+        content = "```lua\\n" .. log_content .. "\\n```"
     }}
     local json = HttpService:JSONEncode(data)
     local headers = {{["Content-Type"] = "application/json"}}
@@ -1026,15 +1037,15 @@ if log_content ~= "" then
         print("[Logger] Log enviado correctamente.")
     end
 else
-    print("[Logger] No se generó log.")
+    print("[Logger] No se generó log. Puede que el script no haya hecho llamadas a la API.")
 end
 """
-    logger_template = logger_template.replace("{escaped_script}", escaped_script)
+    logger_template = logger_template.replace("{escaped_script}", escaped)
     logger_template = logger_template.replace("{webhook_url}", webhook_url)
     return logger_template
 
 # =============================================
-# COMANDO .deobf (CON LOGGER Y ENVÍO POR MD COMO ARCHIVO SI ES LARGO)
+# COMANDO .deobf (CORREGIDO)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
@@ -1080,7 +1091,6 @@ async def deobf_command(ctx, *, loadstring):
                     script_logger = generar_script_logger(deobfuscated, webhook.url)
                     
                     try:
-                        # Si el script logger supera el límite de 4000 caracteres, enviarlo como archivo
                         if len(script_logger) > 4000:
                             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
                                 f.write(script_logger)
@@ -1196,7 +1206,7 @@ async def gethelp_command(ctx):
     await ctx.reply(embed=embed)
 
 # =============================================
-# COMANDOS STICK (resumidos)
+# COMANDO STICK (resumido)
 # =============================================
 @bot.command(name='stick')
 async def stick_cmd(ctx, *, args=None):
@@ -1501,7 +1511,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# EVENTOS Y SLASH COMMANDS (RESUMIDOS)
+# EVENTOS Y SLASH COMMANDS (resumidos)
 # =============================================
 @bot.event
 async def on_member_join(member):
@@ -1635,7 +1645,7 @@ async def on_member_unban(guild, user):
         print(f"❌ Error al enviar log de unban: {e}")
 
 # =============================================
-# SLASH COMMANDS (resumidos - igual que antes)
+# SLASH COMMANDS
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1857,7 +1867,7 @@ async def slash_clear_spam(interaction: discord.Interaction):
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
 
 # =============================================
-# COMANDOS CON PREFIJO
+# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
 # =============================================
 @bot.command(name='panel')
 async def panel_cmd(ctx):
