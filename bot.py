@@ -620,7 +620,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# COMANDO .get (SOLO FUNCIONA EN EL CANAL ESPECÍFICO)
+# COMANDO .get (SOPORTA MÚLTIPLES FORMATOS)
 # =============================================
 @bot.command(name='get')
 async def get_content(ctx, *, loadstring):
@@ -628,10 +628,30 @@ async def get_content(ctx, *, loadstring):
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
+    # Buscar URL en diferentes formatos
+    url_match = None
+    
+    # Formato 1: loadstring("URL")
     url_match = re.search(r"loadstring\(['\"]([^'\"]+)['\"]\)", loadstring)
     
+    # Formato 2: game:HttpGet("URL")
     if not url_match:
-        await ctx.reply('❌ No se encontró una URL válida en el loadstring.\nEjemplo: `.get loadstring("https://ejemplo.com/script.lua")`')
+        url_match = re.search(r"game:HttpGet\(['\"]([^'\"]+)['\"]\)", loadstring)
+    
+    # Formato 3: game:HttpGet(("URL")) (con doble paréntesis)
+    if not url_match:
+        url_match = re.search(r"game:HttpGet\(\(['\"]([^'\"]+)['\"]\)\)", loadstring)
+    
+    # Formato 4: URL directa (solo la URL)
+    if not url_match:
+        url_match = re.search(r"(https?://[^\s'\"]+)", loadstring)
+    
+    if not url_match:
+        await ctx.reply('❌ No se encontró una URL válida.\n'
+                        'Formatos soportados:\n'
+                        '• `.get loadstring("URL")`\n'
+                        '• `.get game:HttpGet("URL")`\n'
+                        '• `.get URL`')
         return
     
     url = url_match.group(1)
@@ -646,6 +666,8 @@ async def get_content(ctx, *, loadstring):
                             error_msg += ' - URL no encontrada'
                         elif response.status == 403:
                             error_msg += ' - Acceso denegado'
+                        elif response.status == 429:
+                            error_msg += ' - Demasiadas peticiones'
                         await ctx.reply(error_msg)
                         return
                     
@@ -670,12 +692,14 @@ async def get_content(ctx, *, loadstring):
                         
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado (15 segundos).')
+        except aiohttp.ClientError as e:
+            await ctx.reply(f'❌ Error de conexión: {str(e)[:100]}')
         except Exception as e:
             logger.error(f"Error en .get: {e}")
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO .gethelp (RENOMBRADO PARA EVITAR CONFLICTO CON help)
+# COMANDO .gethelp
 # =============================================
 @bot.command(name='gethelp')
 async def gethelp_command(ctx):
@@ -690,7 +714,7 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🎯 .get',
-        value='Obtiene el contenido de un loadstring\nEjemplo: `.get loadstring("https://ejemplo.com/script.lua")`',
+        value='Obtiene el contenido de un loadstring\nEjemplo: `.get loadstring("https://ejemplo.com/script.lua")`\nEjemplo: `.get game:HttpGet("https://ejemplo.com/script.lua")`',
         inline=False
     )
     embed.add_field(
