@@ -70,7 +70,7 @@ ARCHIVO_ECONOMIA = 'economy.json'
 ARCHIVO_MUTES = 'mutes.json'
 
 # =============================================
-# WEBHOOK MANUAL (el que me diste)
+# WEBHOOK MANUAL
 # =============================================
 DEOBF_WEBHOOK_URL = "https://discord.com/api/webhooks/1542191008404480071/nwZgRNsj4VY75ytj8xg9Bd1Kghod5ZO-o2nPptdqUzy7h2JevDxGXxFum6V2dtkgOKga"
 
@@ -624,50 +624,20 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# FUNCIONES DE DEOFUSCACIÓN (básicas)
+# FUNCIÓN PARA OBTENER EL WEBHOOK
 # =============================================
-def deofuscador_general(code):
-    if 'polsec' in code.lower() or 'getpolsec' in code.lower():
-        fake_key = '"BYPASSED_BY_STICK_HUB"'
-        prefix = f'-- BYPASSED BY STICK HUB (deobf)\nlocal script_key = {fake_key}\nlocal key = {fake_key}\n\n'
-        code = prefix + code
-        patrones = [
-            r'if\s+key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
-            r'if\s+script_key\s*[~=!<>]+\s*["\'][^"\']*["\']\s+then[^{]*?end',
-            r'if\s+not\s+key\s+then[^{]*?end',
-            r'if\s+not\s+script_key\s+then[^{]*?end',
-            r'if\s+key\s*==\s*nil\s+then[^{]*?end',
-            r'if\s+script_key\s*==\s*nil\s+then[^{]*?end',
-        ]
-        for p in patrones:
-            code = re.sub(p, '', code, flags=re.IGNORECASE | re.DOTALL)
-        code = re.sub(r'key\s*==\s*["\'][^"\']*["\']', 'true', code)
-        code = re.sub(r'script_key\s*==\s*["\'][^"\']*["\']', 'true', code)
-        code = re.sub(r'key\s*~=\s*["\'][^"\']*["\']', 'false', code)
-        code = re.sub(r'script_key\s*~=\s*["\'][^"\']*["\']', 'false', code)
-        code = re.sub(r'key\s*==\s*nil', 'false', code)
-        code = re.sub(r'script_key\s*==\s*nil', 'false', code)
-        code = re.sub(r'key\s*~=\s*nil', 'true', code)
-        code = re.sub(r'script_key\s*~=\s*nil', 'true', code)
-        code = re.sub(r'not\s+key\b', 'false', code)
-        code = re.sub(r'not\s+script_key\b', 'false', code)
-        code = re.sub(r'check[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-        code = re.sub(r'validate[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-        code = re.sub(r'verify[_\s]*key[_\s]*\([^)]*\)', 'true', code, flags=re.IGNORECASE)
-    return code
+async def get_deobf_webhook():
+    return DEOBF_WEBHOOK_URL
 
 # =============================================
-# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (CORREGIDA)
+# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (SIN EMBEBER EL SCRIPT OFUSCADO)
 # =============================================
-def generar_script_logger(script_code, webhook_url, user_id):
-    # Escapar el script para que sea seguro en Lua
-    escaped = json.dumps(script_code)
-    if escaped.startswith('"') and escaped.endswith('"'):
-        escaped = escaped[1:-1]
-    escaped = escaped.replace(']]', '] ]')
+def generar_script_logger(loadstring_text, webhook_url, user_id):
+    # Escapar el loadstring para que sea seguro como cadena Lua
+    # Usamos [=[ ... ]=] para evitar problemas con ]] en el contenido
+    escaped_loadstring = loadstring_text.replace(']=]', '] ]')
     
-    # Template SIN f-string (para evitar el error "escaped_script is not defined")
-    template = """
+    template = f"""
 -- Logger de entorno (Garama style) con envío a webhook
 -- Generado por Stick Hub .deobf
 
@@ -920,23 +890,25 @@ end)
 print("[Logger] Iniciando...")
 print("[Logger] Ejecutando script deofuscado...")
 
--- Inyectar el script deofuscado como cadena literal
-local script_code = [[
-{escaped_script}
-]]
+-- Inyectar el loadstring original del usuario
+local user_loadstring = [=[
+{loadstring_text}
+]=]
+
+print("[Logger] Ejecutando loadstring...")
 local success, err = pcall(function()
-    local fn = loadstring(script_code)
+    local fn = loadstring(user_loadstring)
     if fn then
         fn()
     else
-        error("loadstring falló, el script puede tener errores de sintaxis")
+        error("loadstring falló, puede haber errores de sintaxis")
     end
 end)
 
 if not success then
-    print("[Logger] Error al ejecutar el script: " .. tostring(err))
+    print("[Logger] Error al ejecutar el loadstring: " .. tostring(err))
 else
-    print("[Logger] Script ejecutado correctamente.")
+    print("[Logger] Loadstring ejecutado correctamente.")
 end
 
 print("[Logger] Esperando 3 segundos para capturar logs...")
@@ -944,7 +916,7 @@ wait(3)
 
 print("[Logger] Enviando log al webhook...")
 
--- Enviar log al webhook (incluyendo el ID del usuario)
+-- Enviar log al webhook
 local webhook_url = "{webhook_url}"
 local log_content = readfile("logged.txt") or ""
 if log_content ~= "" then
@@ -983,8 +955,7 @@ else
     print("[Logger] No se generó log. El script puede no haber hecho llamadas a la API.")
 end
 """
-    # Reemplazar placeholders
-    return template.replace("{escaped_script}", escaped).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
+    return template.replace("{loadstring_text}", escaped_loadstring).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
 # COMANDO .deobf (CORREGIDO)
@@ -995,6 +966,10 @@ async def deobf_command(ctx, *, loadstring):
         await ctx.reply(f"❌ Este comando solo funciona en <#{CANAL_GET_ID}>")
         return
     
+    # Guardar el loadstring original exactamente como lo escribió el usuario
+    original_loadstring = loadstring
+    
+    # Limpiar solo para extraer la URL y validar que tiene un loadstring válido
     cleaned_text = loadstring
     cleaned_text = re.sub(r'script_key\s*=\s*["\'][^"\']*["\']\s*', '', cleaned_text)
     cleaned_text = re.sub(r'key\s*=\s*["\'][^"\']*["\']\s*', '', cleaned_text)
@@ -1020,44 +995,36 @@ async def deobf_command(ctx, *, loadstring):
                         '• `.deobf URL`')
         return
     
-    url = url_match.group(1)
-    
     async with ctx.typing():
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=15) as response:
-                    if response.status != 200:
-                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
-                        return
-                    
-                    content = await response.text()
-                    deobfuscated = deofuscador_general(content)
-                    
-                    webhook_url = DEOBF_WEBHOOK_URL
-                    
-                    if not webhook_url:
-                        await ctx.reply("❌ No se encontró el webhook. Contacta al administrador.")
-                        return
-                    
-                    script_logger = generar_script_logger(deobfuscated, webhook_url, ctx.author.id)
-                    
-                    try:
-                        if len(script_logger) > 4000:
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-                                f.write(script_logger)
-                                temp_path = f.name
-                            await ctx.author.send(
-                                content="📄 **Script logger generado** (archivo adjunto). Ejecútalo en tu executor.",
-                                file=discord.File(temp_path)
-                            )
-                            os.unlink(temp_path)
-                        else:
-                            await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor:\n```lua\n{script_logger}\n```")
-                    except discord.Forbidden:
-                        await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
-                        return
-                    
-                    await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
+            # Obtener el webhook
+            webhook_url = await get_deobf_webhook()
+            
+            if not webhook_url:
+                await ctx.reply("❌ No se encontró el webhook. Contacta al administrador.")
+                return
+            
+            # Generar script logger con el loadstring original
+            script_logger = generar_script_logger(original_loadstring, webhook_url, ctx.author.id)
+            
+            # Enviar al usuario por MD
+            try:
+                if len(script_logger) > 4000:
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+                        f.write(script_logger)
+                        temp_path = f.name
+                    await ctx.author.send(
+                        content="📄 **Script logger generado** (archivo adjunto). Ejecútalo en tu executor.",
+                        file=discord.File(temp_path)
+                    )
+                    os.unlink(temp_path)
+                else:
+                    await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor:\n```lua\n{script_logger}\n```")
+            except discord.Forbidden:
+                await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
+                return
+            
+            await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
                     
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
@@ -1374,13 +1341,6 @@ async def on_ready():
     print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
     print(f'🔗 Webhook manual configurado: {DEOBF_WEBHOOK_URL[:50]}...')
     
-    # Obtener el ID del webhook manual para detectar sus mensajes
-    global deobf_webhook_id
-    match = re.search(r'/webhooks/(\d+)/', DEOBF_WEBHOOK_URL)
-    if match:
-        deobf_webhook_id = int(match.group(1))
-        print(f'🔗 Webhook ID detectado: {deobf_webhook_id}')
-    
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
     
@@ -1464,7 +1424,20 @@ async def on_message(message):
     # Verificar si el mensaje es del webhook de deobf
     if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
         global deobf_webhook_id
-        if deobf_webhook_id is not None and message.webhook_id == deobf_webhook_id:
+        if deobf_webhook_id is None:
+            match = re.search(r'/webhooks/(\d+)/', DEOBF_WEBHOOK_URL)
+            if match:
+                deobf_webhook_id = int(match.group(1))
+            else:
+                canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                if canal_logs:
+                    webhooks = await canal_logs.webhooks()
+                    for wh in webhooks:
+                        if wh.url == DEOBF_WEBHOOK_URL:
+                            deobf_webhook_id = wh.id
+                            break
+        
+        if message.webhook_id == deobf_webhook_id:
             content = message.content
             user_match = re.search(r'\[USER=(\d+)\]', content)
             if user_match:
@@ -1484,7 +1457,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# EVENTOS DE MODERACIÓN Y LOGS (on_member_join, on_message_delete, etc.)
+# EVENTOS DE MODERACIÓN Y LOGS
 # =============================================
 @bot.event
 async def on_member_join(member):
@@ -1667,7 +1640,7 @@ async def add_autorole_cmd(ctx, miembro: discord.Member = None):
         await ctx.send(f"❌ Error al asignar el rol: {e}")
 
 # =============================================
-# SLASH COMMANDS (resumidos, pero funcionales)
+# SLASH COMMANDS
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -1676,10 +1649,217 @@ async def add_autorole_cmd(ctx, miembro: discord.Member = None):
 )
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, razon: str = "Baneo masivo por administrador"):
-    # ... código completo (igual que antes)
-    pass
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ No tienes permisos para usar este comando.", ephemeral=True)
+        return
+    if not interaction.guild.me.guild_permissions.ban_members:
+        await interaction.response.send_message("❌ El bot no tiene permisos para banear miembros.", ephemeral=True)
+        return
+    if confirmacion.upper() != "CONFIRMAR":
+        await interaction.response.send_message(
+            "❌ Debes escribir `CONFIRMAR` para ejecutar el baneo masivo.\n"
+            "⚠️ Este comando es **IRREVERSIBLE** y baneará a **TODOS** los miembros del servidor.",
+            ephemeral=True
+        )
+        return
+    resultado = await ban_all_members(interaction.guild, interaction.user, razon)
+    if resultado['baneados'] == 0 and resultado['errores'] == 0:
+        await interaction.response.send_message(
+            f"ℹ️ No hay miembros disponibles para banear.\n"
+            f"Miembros omitidos: {len(resultado['omitidos'])}",
+            ephemeral=True
+        )
+        return
+    embed = discord.Embed(
+        title="✅ BANEO MASIVO COMPLETADO",
+        description=f"**Baneados:** {resultado['baneados']}\n"
+                    f"**Errores:** {resultado['errores']}\n"
+                    f"**Omitidos:** {len(resultado['omitidos'])}\n"
+                    f"**Razón:** {razon}",
+        color=discord.Color.green() if resultado['errores'] == 0 else discord.Color.orange()
+    )
+    if resultado['omitidos']:
+        omitidos_texto = "\n".join(resultado['omitidos'][:10])
+        if len(resultado['omitidos']) > 10:
+            omitidos_texto += f"\n... y {len(resultado['omitidos']) - 10} más"
+        embed.add_field(name="Miembros omitidos", value=omitidos_texto, inline=False)
+    if resultado['errores_lista']:
+        errores_texto = "\n".join(resultado['errores_lista'][:10])
+        if len(resultado['errores_lista']) > 10:
+            errores_texto += f"\n... y {len(resultado['errores_lista']) - 10} más"
+        embed.add_field(name="Errores", value=errores_texto, inline=False)
+    await interaction.response.send_message(embed=embed)
+    canal_logs = bot.get_channel(CANAL_LOGS_ID)
+    if canal_logs:
+        log_embed = discord.Embed(
+            title="🔨 BANEO MASIVO POR SLASH",
+            description=f"**Usuario:** {interaction.user.mention}\n"
+                        f"**Baneados:** {resultado['baneados']}\n"
+                        f"**Errores:** {resultado['errores']}",
+            color=discord.Color.red(),
+            timestamp=datetime.now()
+        )
+        await canal_logs.send(embed=log_embed)
+    logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
 
-# ... (resto de slash commands)
+@bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
+@discord.app_commands.describe(accion="Acción a realizar (add o remove)", usuario="Usuario a agregar o quitar de la blacklist")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_blacklist(interaction: discord.Interaction, accion: str, usuario: discord.Member):
+    blacklist = cargar_json(ARCHIVO_BLACKLIST)
+    user_id = str(usuario.id)
+    if accion.lower() == 'add':
+        if user_id not in blacklist.get('usuarios', []):
+            if 'usuarios' not in blacklist:
+                blacklist['usuarios'] = []
+            blacklist['usuarios'].append(user_id)
+            guardar_json(ARCHIVO_BLACKLIST, blacklist)
+            await interaction.response.send_message(f"✅ {usuario.mention} agregado a la blacklist")
+            logger.info(f"🚫 {usuario.name} agregado a la blacklist por {interaction.user.name}")
+        else:
+            await interaction.response.send_message(f"ℹ️ {usuario.mention} ya está en la blacklist", ephemeral=True)
+    elif accion.lower() == 'remove':
+        if user_id in blacklist.get('usuarios', []):
+            blacklist['usuarios'].remove(user_id)
+            guardar_json(ARCHIVO_BLACKLIST, blacklist)
+            await interaction.response.send_message(f"✅ {usuario.mention} removido de la blacklist")
+            logger.info(f"✅ {usuario.name} removido de la blacklist por {interaction.user.name}")
+        else:
+            await interaction.response.send_message(f"ℹ️ {usuario.mention} no está en la blacklist", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Acción inválida. Usa `add` o `remove`", ephemeral=True)
+
+@bot.tree.command(name="poll", description="📊 Crear una encuesta")
+@discord.app_commands.describe(
+    pregunta="La pregunta de la encuesta",
+    opcion1="Primera opción",
+    opcion2="Segunda opción",
+    opcion3="Tercera opción (opcional)",
+    opcion4="Cuarta opción (opcional)",
+    opcion5="Quinta opción (opcional)"
+)
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_poll(
+    interaction: discord.Interaction,
+    pregunta: str,
+    opcion1: str,
+    opcion2: str,
+    opcion3: str = None,
+    opcion4: str = None,
+    opcion5: str = None
+):
+    opciones = [opcion1, opcion2]
+    if opcion3:
+        opciones.append(opcion3)
+    if opcion4:
+        opciones.append(opcion4)
+    if opcion5:
+        opciones.append(opcion5)
+    emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
+    embed = discord.Embed(
+        title="📊 Encuesta",
+        description=f"**{pregunta}**\n\n" + "\n".join([f"{emojis[i]} {opcion}" for i, opcion in enumerate(opciones[:10])]),
+        color=discord.Color.orange()
+    )
+    embed.set_footer(text=f"Encuesta creada por {interaction.user.name} | {datetime.now().strftime('%d/%m/%Y')}")
+    await interaction.response.send_message(embed=embed)
+    mensaje = await interaction.original_response()
+    for i in range(min(len(opciones), 10)):
+        await mensaje.add_reaction(emojis[i])
+    logger.info(f"📊 Encuesta creada por {interaction.user.name}: {pregunta}")
+
+@bot.tree.command(name="remind", description="⏰ Crear un recordatorio")
+@discord.app_commands.describe(tiempo="Tiempo (ej: 10s, 5m, 1h, 1d)", recordatorio="Lo que quieres recordar")
+async def slash_remind(interaction: discord.Interaction, tiempo: str, recordatorio: str):
+    match = re.match(r'(\d+)([smhd])', tiempo.lower())
+    if not match:
+        await interaction.response.send_message("❌ Formato inválido. Usa: 10s, 5m, 1h, 1d", ephemeral=True)
+        return
+    cantidad, unidad = match.groups()
+    cantidad = int(cantidad)
+    segundos = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}.get(unidad, 0)
+    total_segundos = cantidad * segundos
+    if total_segundos > 86400 * 7:
+        await interaction.response.send_message("❌ No puedes programar recordatorios por más de 7 días.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"✅ Recordatorio programado para {cantidad}{unidad}: {recordatorio}")
+    await asyncio.sleep(total_segundos)
+    canal = interaction.channel
+    await canal.send(f"⏰ {interaction.user.mention}, recordatorio: **{recordatorio}**")
+    logger.info(f"⏰ Recordatorio de {interaction.user.name}: {recordatorio}")
+
+@bot.tree.command(name="serverstats", description="📊 Ver estadísticas del servidor")
+async def slash_serverstats(interaction: discord.Interaction):
+    guild = interaction.guild
+    total_members = guild.member_count
+    humanos = sum(1 for m in guild.members if not m.bot)
+    bots = total_members - humanos
+    online = sum(1 for m in guild.members if m.status != discord.Status.offline)
+    embed = discord.Embed(title=f"📊 Estadísticas de {guild.name}", color=discord.Color.blue())
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    embed.add_field(name="👥 Total", value=total_members, inline=True)
+    embed.add_field(name="👤 Humanos", value=humanos, inline=True)
+    embed.add_field(name="🤖 Bots", value=bots, inline=True)
+    embed.add_field(name="🟢 Online", value=online, inline=True)
+    embed.add_field(name="📅 Creado", value=guild.created_at.strftime("%d/%m/%Y"), inline=True)
+    embed.add_field(name="👑 Dueño", value=guild.owner.mention, inline=True)
+    embed.add_field(name="📊 Canales", value=len(guild.channels), inline=True)
+    embed.add_field(name="🎭 Roles", value=len(guild.roles), inline=True)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="userinfo", description="ℹ️ Ver información de un usuario")
+@discord.app_commands.describe(miembro="Usuario para ver su información (opcional)")
+async def slash_userinfo(interaction: discord.Interaction, miembro: discord.Member = None):
+    if miembro is None:
+        miembro = interaction.user
+    embed = discord.Embed(
+        title=f"ℹ️ Información de {miembro.name}",
+        color=miembro.color if miembro.color != discord.Color.default() else discord.Color.orange()
+    )
+    embed.set_thumbnail(url=miembro.display_avatar.url)
+    embed.add_field(name="📛 Nombre", value=miembro.name, inline=True)
+    embed.add_field(name="🔢 ID", value=miembro.id, inline=True)
+    embed.add_field(name="📅 Creación", value=miembro.created_at.strftime("%d/%m/%Y %H:%M"), inline=True)
+    embed.add_field(name="📥 Ingreso", value=miembro.joined_at.strftime("%d/%m/%Y %H:%M") if miembro.joined_at else "N/A", inline=True)
+    embed.add_field(name="🎭 Roles", value=len(miembro.roles) - 1, inline=True)
+    embed.add_field(name="🟢 Estado", value=miembro.status, inline=True)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="set_autorole", description="🎭 Cambiar el rol que se asigna automáticamente")
+@discord.app_commands.describe(rol="El rol que se asignará automáticamente")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_set_autorole(interaction: discord.Interaction, rol: discord.Role):
+    global AUTO_ROLE_ID
+    AUTO_ROLE_ID = rol.id
+    await interaction.response.send_message(f"✅ Rol auto-asignado actualizado a: {rol.mention}")
+    logger.info(f"🎭 Auto-role cambiado a {rol.name} por {interaction.user.name}")
+
+@bot.tree.command(name="add_autorole", description="🎭 Asignar el auto-role a un usuario manualmente")
+@discord.app_commands.describe(miembro="Usuario que recibirá el rol")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_add_autorole(interaction: discord.Interaction, miembro: discord.Member):
+    rol = interaction.guild.get_role(AUTO_ROLE_ID)
+    if rol is None:
+        await interaction.response.send_message(f"❌ El rol con ID {AUTO_ROLE_ID} no existe", ephemeral=True)
+        return
+    if rol in miembro.roles:
+        await interaction.response.send_message(f"ℹ️ {miembro.mention} ya tiene el rol {rol.mention}", ephemeral=True)
+        return
+    try:
+        await miembro.add_roles(rol)
+        await interaction.response.send_message(f"✅ Rol {rol.mention} asignado a {miembro.mention}")
+        logger.info(f"🎭 {rol.name} asignado a {miembro.name} por {interaction.user.name}")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error al asignar el rol: {e}", ephemeral=True)
+
+@bot.tree.command(name="clear_spam", description="🧹 Limpiar el contador de spam")
+@discord.app_commands.default_permissions(administrator=True)
+async def slash_clear_spam(interaction: discord.Interaction):
+    global spam_counter
+    spam_counter.clear()
+    await interaction.response.send_message("✅ Contador de spam limpiado.")
+    logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
 
 # =============================================
 # INICIAR EL BOT
