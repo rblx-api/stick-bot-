@@ -70,7 +70,7 @@ ARCHIVO_ECONOMIA = 'economy.json'
 ARCHIVO_MUTES = 'mutes.json'
 
 # =============================================
-# WEBHOOK MANUAL
+# WEBHOOK MANUAL (Configurado con la URL que me diste)
 # =============================================
 DEOBF_WEBHOOK_URL = "https://discord.com/api/webhooks/1542191008404480071/nwZgRNsj4VY75ytj8xg9Bd1Kghod5ZO-o2nPptdqUzy7h2JevDxGXxFum6V2dtkgOKga"
 
@@ -89,7 +89,7 @@ tickets_activos = {}
 spam_counter = defaultdict(list)
 raid_detection = defaultdict(list)
 mutes_activos = {}
-deobf_webhook_url = DEOBF_WEBHOOK_URL
+deobf_webhook_url = DEOBF_WEBHOOK_URL  # Usamos la URL manual
 deobf_webhook_id = None
 
 SPAM_LIMIT = 5
@@ -327,7 +327,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# TICKETS - MODALES Y VISTAS
+# TICKETS - MODALES Y VISTAS (COMPLETOS)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -657,16 +657,22 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (CORREGIDA - SIN f-STRING)
+# FUNCIÓN PARA OBTENER EL WEBHOOK (SIEMPRE DEVUELVE EL MANUAL)
+# =============================================
+async def get_deobf_webhook():
+    return DEOBF_WEBHOOK_URL
+
+# =============================================
+# FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (CORREGIDA, SIN f-string)
 # =============================================
 def generar_script_logger(script_code, webhook_url, user_id):
-    # Escapar el script
+    # Escapar el script para que sea una cadena Lua válida usando json.dumps
     escaped = json.dumps(script_code)
     if escaped.startswith('"') and escaped.endswith('"'):
         escaped = escaped[1:-1]
-    escaped = escaped.replace(']]', '] ]')
+    escaped = escaped.replace(']]', '] ]')  # Evitar cierre de bloque en Lua
 
-    # TEMPLATE SIN f-STRING
+    # TEMPLATE SIN f-STRING (string normal)
     template = """
 -- Logger de entorno (Garama style) con envío a webhook
 -- Generado por Stick Hub .deobf
@@ -987,7 +993,7 @@ end
     return template.replace("{escaped_script}", escaped).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
-# COMANDO .deobf
+# COMANDO .deobf (CORREGIDO - DEVUELVE CODIGO OFUSCADO Y LOGGER)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
@@ -1031,16 +1037,39 @@ async def deobf_command(ctx, *, loadstring):
                         return
                     
                     content = await response.text()
+                    # Script ofuscado original
+                    original_code = content
+                    # Aplicar deofuscación básica (para el logger)
                     deobfuscated = deofuscador_general(content)
                     
-                    webhook_url = DEOBF_WEBHOOK_URL
+                    # Obtener el webhook (siempre devuelve el manual)
+                    webhook_url = await get_deobf_webhook()
+                    
                     if not webhook_url:
-                        await ctx.reply("❌ No se encontró el webhook. Contacta al administrador.")
+                        await ctx.reply(
+                            "❌ No se encontró el webhook. Contacta al administrador."
+                        )
                         return
                     
-                    script_logger = generar_script_logger(deobfuscated, webhook_url, ctx.author.id)
+                    # Generar script logger con el código deofuscado inyectado
+                    script_logger = generar_script_logger(deofuscated, webhook_url, ctx.author.id)
                     
+                    # Enviar al usuario por MD: primero el código ofuscado original
                     try:
+                        # Enviar el código ofuscado original
+                        if len(original_code) > 1900:
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                                f.write(original_code)
+                                temp_path = f.name
+                            await ctx.author.send(
+                                content="📄 **Código ofuscado original** (archivo adjunto)",
+                                file=discord.File(temp_path)
+                            )
+                            os.unlink(temp_path)
+                        else:
+                            await ctx.author.send(f"📄 **Código ofuscado original:**\n```lua\n{original_code}\n```")
+                        
+                        # Enviar el script logger
                         if len(script_logger) > 4000:
                             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
                                 f.write(script_logger)
@@ -1056,7 +1085,7 @@ async def deobf_command(ctx, *, loadstring):
                         await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
                         return
                     
-                    await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
+                    await ctx.reply("✅ **Check your DMs** – Te he enviado el código ofuscado y el script logger. Ejecuta el logger en Roblox para capturar las funciones.")
                     
         except asyncio.TimeoutError:
             await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
@@ -1456,12 +1485,20 @@ async def on_message(message):
     # Verificar si el mensaje es del webhook de deobf
     if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
         global deobf_webhook_id
-        # Obtener el ID del webhook si no lo tenemos
         if deobf_webhook_id is None:
-            # Extraer el ID de la URL
+            # Intentar obtener el ID del webhook a partir de la URL manual
             match = re.search(r'/webhooks/(\d+)/', DEOBF_WEBHOOK_URL)
             if match:
                 deobf_webhook_id = int(match.group(1))
+            else:
+                # Si no se puede extraer, buscar en el canal
+                canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                if canal_logs:
+                    webhooks = await canal_logs.webhooks()
+                    for wh in webhooks:
+                        if wh.url == DEOBF_WEBHOOK_URL:
+                            deobf_webhook_id = wh.id
+                            break
         
         if message.webhook_id == deobf_webhook_id:
             content = message.content
