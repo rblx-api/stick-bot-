@@ -70,6 +70,13 @@ ARCHIVO_ECONOMIA = 'economy.json'
 ARCHIVO_MUTES = 'mutes.json'
 
 # =============================================
+# WEBHOOK MANUAL (OPCIONAL) - Configura esto si quieres saltar la creación automática
+# =============================================
+DEOBF_WEBHOOK_URL = os.getenv('DEOBF_WEBHOOK_URL')  # Variable de entorno
+# Si no está en variables, puedes poner la URL directamente aquí (entre comillas)
+# DEOBF_WEBHOOK_URL = "https://discord.com/api/webhooks/..."
+
+# =============================================
 # INTENTS Y BOT
 # =============================================
 intents = discord.Intents.default()
@@ -84,7 +91,7 @@ tickets_activos = {}
 spam_counter = defaultdict(list)
 raid_detection = defaultdict(list)
 mutes_activos = {}
-deobf_webhook_url = None
+deobf_webhook_url = DEOBF_WEBHOOK_URL  # Usamos la URL manual si está definida
 deobf_webhook_id = None
 
 SPAM_LIMIT = 5
@@ -652,22 +659,23 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# FUNCIÓN PARA OBTENER O CREAR EL WEBHOOK ÚNICO (SIMPLIFICADA)
+# FUNCIÓN PARA OBTENER EL WEBHOOK (AUTOMÁTICO O MANUAL)
 # =============================================
 async def get_deobf_webhook():
     global deobf_webhook_url, deobf_webhook_id
     
-    # Si ya tenemos la URL, devolverla
-    if deobf_webhook_url is not None:
+    # Si hay una URL manual configurada, usarla directamente
+    if deobf_webhook_url:
         return deobf_webhook_url
     
+    # Si no, intentar obtener/crear automáticamente
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if not canal_logs:
         logger.error("❌ Canal de logs no encontrado.")
         return None
     
     try:
-        # Buscar un webhook existente con el nombre "deobf-logger"
+        # Buscar un webhook existente
         webhooks = await canal_logs.webhooks()
         for wh in webhooks:
             if wh.name == "deobf-logger":
@@ -1072,8 +1080,11 @@ async def deobf_command(ctx, *, loadstring):
                     
                     if not webhook_url:
                         await ctx.reply(
-                            "❌ No se pudo obtener el webhook. Asegúrate de que el bot tenga el permiso `Gestionar webhooks` en <#1517328591732477962>.\n"
-                            "Si el problema persiste, contacta al administrador."
+                            "❌ No se pudo obtener el webhook.\n"
+                            "**Solución rápida:** Crea un webhook manualmente en <#1517328591732477962> y configura la URL en el código.\n"
+                            "1. Ve al canal, crea un webhook y copia su URL.\n"
+                            "2. En Railway, añade la variable `DEOBF_WEBHOOK_URL` con esa URL.\n"
+                            "3. Vuelve a desplegar."
                         )
                         return
                     
@@ -1411,7 +1422,10 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
-    print(f'🔄 Webhook único para .deobf en <#{CANAL_LOGS_ID}>')
+    if DEOBF_WEBHOOK_URL:
+        print(f'🔗 Webhook manual configurado: {DEOBF_WEBHOOK_URL[:50]}...')
+    else:
+        print('🔄 Webhook automático para .deobf en <#1517328591732477962>')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
