@@ -70,11 +70,9 @@ ARCHIVO_ECONOMIA = 'economy.json'
 ARCHIVO_MUTES = 'mutes.json'
 
 # =============================================
-# WEBHOOK MANUAL (OPCIONAL) - Configura esto si quieres saltar la creación automática
+# WEBHOOK MANUAL (Configurado con la URL que me diste)
 # =============================================
-DEOBF_WEBHOOK_URL = os.getenv('DEOBF_WEBHOOK_URL')  # Variable de entorno
-# Si no está en variables, puedes poner la URL directamente aquí (entre comillas)
-# DEOBF_WEBHOOK_URL = "https://discord.com/api/webhooks/..."
+DEOBF_WEBHOOK_URL = "https://discord.com/api/webhooks/1542191008404480071/nwZgRNsj4VY75ytj8xg9Bd1Kghod5ZO-o2nPptdqUzy7h2JevDxGXxFum6V2dtkgOKga"
 
 # =============================================
 # INTENTS Y BOT
@@ -91,7 +89,7 @@ tickets_activos = {}
 spam_counter = defaultdict(list)
 raid_detection = defaultdict(list)
 mutes_activos = {}
-deobf_webhook_url = DEOBF_WEBHOOK_URL  # Usamos la URL manual si está definida
+deobf_webhook_url = DEOBF_WEBHOOK_URL  # Usamos la URL manual
 deobf_webhook_id = None
 
 SPAM_LIMIT = 5
@@ -659,47 +657,10 @@ def deofuscador_general(code):
     return code
 
 # =============================================
-# FUNCIÓN PARA OBTENER EL WEBHOOK (AUTOMÁTICO O MANUAL)
+# FUNCIÓN PARA OBTENER EL WEBHOOK (SIEMPRE DEVUELVE EL MANUAL)
 # =============================================
 async def get_deobf_webhook():
-    global deobf_webhook_url, deobf_webhook_id
-    
-    # Si hay una URL manual configurada, usarla directamente
-    if deobf_webhook_url:
-        return deobf_webhook_url
-    
-    # Si no, intentar obtener/crear automáticamente
-    canal_logs = bot.get_channel(CANAL_LOGS_ID)
-    if not canal_logs:
-        logger.error("❌ Canal de logs no encontrado.")
-        return None
-    
-    try:
-        # Buscar un webhook existente
-        webhooks = await canal_logs.webhooks()
-        for wh in webhooks:
-            if wh.name == "deobf-logger":
-                deobf_webhook_url = wh.url
-                deobf_webhook_id = wh.id
-                logger.info("✅ Webhook encontrado y reutilizado.")
-                return wh.url
-        
-        # Si no existe, crearlo
-        wh = await canal_logs.create_webhook(name="deobf-logger")
-        deobf_webhook_url = wh.url
-        deobf_webhook_id = wh.id
-        logger.info("✅ Webhook creado correctamente.")
-        return wh.url
-        
-    except discord.Forbidden as e:
-        logger.error(f"❌ Sin permisos para gestionar webhooks: {e}")
-        return None
-    except discord.HTTPException as e:
-        logger.error(f"❌ Error HTTP al crear/obtener webhook: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"❌ Error inesperado: {e}")
-        return None
+    return DEOBF_WEBHOOK_URL
 
 # =============================================
 # FUNCIÓN PARA GENERAR EL SCRIPT LOGGER
@@ -1029,7 +990,7 @@ end
     return template.replace("{escaped_script}", escaped).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
-# COMANDO .deobf (CORREGIDO)
+# COMANDO .deobf (CORREGIDO - USANDO WEBHOOK MANUAL)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
@@ -1075,16 +1036,12 @@ async def deobf_command(ctx, *, loadstring):
                     content = await response.text()
                     deobfuscated = deofuscador_general(content)
                     
-                    # Intentar obtener el webhook
+                    # Obtener el webhook (siempre devuelve el manual)
                     webhook_url = await get_deobf_webhook()
                     
                     if not webhook_url:
                         await ctx.reply(
-                            "❌ No se pudo obtener el webhook.\n"
-                            "**Solución rápida:** Crea un webhook manualmente en <#1517328591732477962> y configura la URL en el código.\n"
-                            "1. Ve al canal, crea un webhook y copia su URL.\n"
-                            "2. En Railway, añade la variable `DEOBF_WEBHOOK_URL` con esa URL.\n"
-                            "3. Vuelve a desplegar."
+                            "❌ No se encontró el webhook. Contacta al administrador."
                         )
                         return
                     
@@ -1422,10 +1379,7 @@ async def on_ready():
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
     print(f'🛡️ Roles exentos de moderación: {ROLES_EXENTOS}')
     print(f'📥 Comandos .get y .deobf en el canal: <#{CANAL_GET_ID}>')
-    if DEOBF_WEBHOOK_URL:
-        print(f'🔗 Webhook manual configurado: {DEOBF_WEBHOOK_URL[:50]}...')
-    else:
-        print('🔄 Webhook automático para .deobf en <#1517328591732477962>')
+    print(f'🔗 Webhook manual configurado: {DEOBF_WEBHOOK_URL[:50]}...')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -1511,13 +1465,21 @@ async def on_message(message):
     if message.webhook_id and message.channel.id == CANAL_LOGS_ID:
         global deobf_webhook_id
         if deobf_webhook_id is None:
-            canal_logs = bot.get_channel(CANAL_LOGS_ID)
-            if canal_logs:
-                webhooks = await canal_logs.webhooks()
-                for wh in webhooks:
-                    if wh.name == "deobf-logger":
-                        deobf_webhook_id = wh.id
-                        break
+            # Intentar obtener el ID del webhook a partir de la URL manual
+            # Extraer el ID de la URL del webhook
+            match = re.search(r'/webhooks/(\d+)/', DEOBF_WEBHOOK_URL)
+            if match:
+                deobf_webhook_id = int(match.group(1))
+            else:
+                # Si no se puede extraer, buscar en el canal
+                canal_logs = bot.get_channel(CANAL_LOGS_ID)
+                if canal_logs:
+                    webhooks = await canal_logs.webhooks()
+                    for wh in webhooks:
+                        if wh.url == DEOBF_WEBHOOK_URL:
+                            deobf_webhook_id = wh.id
+                            break
+        
         if message.webhook_id == deobf_webhook_id:
             content = message.content
             user_match = re.search(r'\[USER=(\d+)\]', content)
