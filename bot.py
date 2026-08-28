@@ -1064,23 +1064,20 @@ end
     return template.replace("{loadstring_text}", loadstring_text).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
-# FUNCIÓN PARA GENERAR INTRO DE LA OSTIA (MEJORADA)
+# FUNCIÓN PARA GENERAR INTRO (CORREGIDA)
 # =============================================
 def generar_intro(texto):
     texto_escapado = texto.replace('"', '\\"').replace('\n', '\\n')
     
     template = f"""
 -- =============================================
--- 🚀 INTRO DE LA OSTIA - GENERADA POR STICK HUB
--- 🔥 Efectos visuales de alto nivel
--- 💻 Compatible con cualquier executor
+-- 🚀 INTRO GENERADA POR STICK HUB
+-- 💻 Compatible con todos los executores
 -- =============================================
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
 if not player then
@@ -1089,19 +1086,12 @@ end
 
 -- ========== CONFIGURACIÓN ==========
 local config = {{
-    -- Colores
-    bgColor1 = Color3.fromRGB(10, 5, 30),      -- Color de fondo 1
-    bgColor2 = Color3.fromRGB(30, 10, 50),      -- Color de fondo 2
-    accentColor1 = Color3.fromRGB(255, 70, 130), -- Color acento principal
-    accentColor2 = Color3.fromRGB(100, 200, 255), -- Color acento secundario
-    accentColor3 = Color3.fromRGB(255, 200, 50),  -- Color acento terciario
+    bgColor = Color3.fromRGB(10, 5, 30),
+    accentColor = Color3.fromRGB(255, 70, 130),
+    secondaryColor = Color3.fromRGB(100, 200, 255),
     textColor = Color3.fromRGB(255, 255, 255),
-    subTextColor = Color3.fromRGB(200, 200, 230),
-    
-    -- Textos
     welcomeText = "{texto_escapado}",
-    subText = "✨ Prepárate para la experiencia",
-    buttonText = "▶ COMENZAR",
+    buttonText = "▶ CONTINUAR",
 }}
 
 -- ========== CREAR GUI ==========
@@ -1110,213 +1100,93 @@ screenGui.Name = "IntroGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- 📱 FONDO PRINCIPAL CON GRADIENTE DINÁMICO
+-- Fondo
 local background = Instance.new("Frame")
 background.Size = UDim2.new(1, 0, 1, 0)
-background.BackgroundColor3 = config.bgColor1
+background.BackgroundColor3 = config.bgColor
+background.BackgroundTransparency = 0
 background.BorderSizePixel = 0
 background.Parent = screenGui
 
--- Gradiente de fondo (aurora boreal animada)
-local bgGradient = Instance.new("UIGradient")
-bgGradient.Color = ColorSequence.new({{
-    ColorSequenceKeypoint.new(0, config.bgColor1),
-    ColorSequenceKeypoint.new(0.5, config.bgColor2),
-    ColorSequenceKeypoint.new(1, config.bgColor1)
+-- Gradiente de fondo
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new({{
+    ColorSequenceKeypoint.new(0, config.bgColor),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 10, 50)),
+    ColorSequenceKeypoint.new(1, config.bgColor)
 }})
-bgGradient.Rotation = 45
-bgGradient.Parent = background
+gradient.Rotation = 45
+gradient.Parent = background
 
--- 🌟 PARTÍCULAS ESTELARES
-local particleContainer = Instance.new("Frame")
-particleContainer.Size = UDim2.new(1, 0, 1, 0)
-particleContainer.BackgroundTransparency = 1
-particleContainer.Parent = background
-
-local particles = {{}}
-for i = 1, 50 do
-    local dot = Instance.new("Frame")
-    dot.Size = UDim2.new(0, math.random(2, 6), 0, math.random(2, 6))
-    dot.Position = UDim2.new(math.random() * 0.95, 0, math.random() * 0.95, 0)
-    dot.BackgroundColor3 = config.accentColor1
-    dot.BackgroundTransparency = 0.5
-    dot.BorderSizePixel = 0
-    dot.Parent = particleContainer
-    dot.AnchorPoint = Vector2.new(0.5, 0.5)
-    table.insert(particles, {{
-        frame = dot,
-        speedX = (math.random() - 0.5) * 0.3,
-        speedY = (math.random() - 0.5) * 0.3,
-        baseX = dot.Position.X.Scale,
-        baseY = dot.Position.Y.Scale,
-        size = dot.Size.X.Offset,
-        phase = math.random() * 2 * math.pi
-    }})
-end
-
--- 💎 MARCO PRINCIPAL (Efecto glassmorphism)
+-- Marco central
 local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 600, 0, 380)
-container.Position = UDim2.new(0.5, -300, 0.5, -190)
+container.Size = UDim2.new(0, 500, 0, 300)
+container.Position = UDim2.new(0.5, -250, 0.5, -150)
 container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-container.BackgroundTransparency = 0.08
+container.BackgroundTransparency = 0.1
 container.BorderSizePixel = 0
 container.Parent = background
 container.AnchorPoint = Vector2.new(0, 0)
-container.ClipsDescendants = true
 
--- Efecto de vidrio (glassmorphism) - borde con glow
-local glassBorder = Instance.new("Frame")
-glassBorder.Size = UDim2.new(1, 2, 1, 2)
-glassBorder.Position = UDim2.new(-0.002, 0, -0.002, 0)
-glassBorder.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-glassBorder.BackgroundTransparency = 0.9
-glassBorder.BorderSizePixel = 0
-glassBorder.Parent = container
-
--- Borde RGB animado
+-- Borde brillante
 local border = Instance.new("Frame")
 border.Size = UDim2.new(1, 0, 1, 0)
-border.BackgroundColor3 = config.accentColor1
-border.BackgroundTransparency = 0.7
+border.BackgroundColor3 = config.accentColor
+border.BackgroundTransparency = 0.6
 border.BorderSizePixel = 0
 border.Parent = container
 
-local borderGradient = Instance.new("UIGradient")
-borderGradient.Color = ColorSequence.new({{
-    ColorSequenceKeypoint.new(0, config.accentColor1),
-    ColorSequenceKeypoint.new(0.3, config.accentColor2),
-    ColorSequenceKeypoint.new(0.6, config.accentColor3),
-    ColorSequenceKeypoint.new(1, config.accentColor1)
-}})
-borderGradient.Rotation = 0
-borderGradient.Parent = border
-
--- 🎨 LOGO/ICONO CENTRAL
-local iconContainer = Instance.new("Frame")
-iconContainer.Size = UDim2.new(0, 80, 0, 80)
-iconContainer.Position = UDim2.new(0.5, -40, 0, 30)
-iconContainer.BackgroundColor3 = config.accentColor1
-iconContainer.BackgroundTransparency = 0.2
-iconContainer.BorderSizePixel = 0
-iconContainer.Parent = container
-iconContainer.AnchorPoint = Vector2.new(0.5, 0)
-
--- Icono de estrella
-local iconText = Instance.new("TextLabel")
-iconText.Size = UDim2.new(1, 0, 1, 0)
-iconText.BackgroundTransparency = 1
-iconText.Text = "✦"
-iconText.TextColor3 = Color3.fromRGB(255, 255, 255)
-iconText.TextSize = 50
-iconText.TextFont = Enum.Font.GothamBold
-iconText.TextXAlignment = Enum.TextXAlignment.Center
-iconText.TextYAlignment = Enum.TextYAlignment.Center
-iconText.Parent = iconContainer
-
--- 📝 TÍTULO PRINCIPAL (con efecto de rebote)
+-- Título
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -40, 0, 70)
-titleLabel.Position = UDim2.new(0, 20, 0, 130)
+titleLabel.Size = UDim2.new(1, -40, 0, 60)
+titleLabel.Position = UDim2.new(0, 20, 0, 40)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = ""
+titleLabel.Text = config.welcomeText
 titleLabel.TextColor3 = config.textColor
-titleLabel.TextSize = 38
+titleLabel.TextSize = 34
 titleLabel.TextFont = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Center
 titleLabel.TextYAlignment = Enum.TextYAlignment.Center
 titleLabel.Parent = container
 
--- Efecto de sombra en el texto
-local titleShadow = Instance.new("TextLabel")
-titleShadow.Size = titleLabel.Size
-titleShadow.Position = titleLabel.Position
-titleShadow.BackgroundTransparency = 1
-titleShadow.Text = config.welcomeText
-titleShadow.TextColor3 = Color3.fromRGB(0, 0, 0)
-titleShadow.TextSize = 38
-titleShadow.TextFont = Enum.Font.GothamBold
-titleShadow.TextXAlignment = Enum.TextXAlignment.Center
-titleShadow.TextYAlignment = Enum.TextYAlignment.Center
-titleShadow.Parent = container
-titleShadow.TextTransparency = 0.7
-titleShadow.Position = UDim2.new(0, 22, 0, 132)
+-- Efecto de escritura
+local fullText = config.welcomeText
+local displayedText = ""
+local charIndex = 1
+titleLabel.Text = ""
 
--- 📝 SUBTÍTULO
-local subLabel = Instance.new("TextLabel")
-subLabel.Size = UDim2.new(1, -40, 0, 30)
-subLabel.Position = UDim2.new(0, 20, 0, 215)
-subLabel.BackgroundTransparency = 1
-subLabel.Text = config.subText
-subLabel.TextColor3 = config.subTextColor
-subLabel.TextSize = 18
-subLabel.TextFont = Enum.Font.Gotham
-subLabel.TextXAlignment = Enum.TextXAlignment.Center
-subLabel.TextYAlignment = Enum.TextYAlignment.Center
-subLabel.Parent = container
-subLabel.TextTransparency = 1
-
--- 🔘 BOTÓN NEON
+-- Botón
 local continueButton = Instance.new("TextButton")
-continueButton.Size = UDim2.new(0, 220, 0, 55)
-continueButton.Position = UDim2.new(0.5, -110, 0, 280)
-continueButton.BackgroundColor3 = config.accentColor1
-continueButton.BackgroundTransparency = 0.15
+continueButton.Size = UDim2.new(0, 200, 0, 50)
+continueButton.Position = UDim2.new(0.5, -100, 0, 200)
+continueButton.BackgroundColor3 = config.accentColor
+continueButton.BackgroundTransparency = 0.3
 continueButton.BorderSizePixel = 0
 continueButton.Text = config.buttonText
 continueButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-continueButton.TextSize = 20
+continueButton.TextSize = 18
 continueButton.TextFont = Enum.Font.GothamBold
 continueButton.Parent = container
 continueButton.AnchorPoint = Vector2.new(0.5, 0.5)
 continueButton.Visible = false
 
--- Efecto de brillo en el botón
-local buttonGlow = Instance.new("Frame")
-buttonGlow.Size = UDim2.new(1, 10, 1, 10)
-buttonGlow.Position = UDim2.new(-0.02, 0, -0.02, 0)
-buttonGlow.BackgroundColor3 = config.accentColor1
-buttonGlow.BackgroundTransparency = 0.8
-buttonGlow.BorderSizePixel = 0
-buttonGlow.Parent = continueButton
+-- Hover del botón
+continueButton.MouseEnter:Connect(function()
+    TweenService:Create(continueButton, TweenInfo.new(0.3), {{BackgroundTransparency = 0.1}}):Play()
+end)
+continueButton.MouseLeave:Connect(function()
+    TweenService:Create(continueButton, TweenInfo.new(0.3), {{BackgroundTransparency = 0.3}}):Play()
+end)
 
--- Efectos hover del botón
-local function onButtonEnter()
-    TweenService:Create(continueButton, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        BackgroundTransparency = 0.05,
-        Size = UDim2.new(0, 230, 0, 60)
-    }}):Play()
-    TweenService:Create(buttonGlow, TweenInfo.new(0.3), {{
-        BackgroundTransparency = 0.5
-    }}):Play()
-end
-
-local function onButtonLeave()
-    TweenService:Create(continueButton, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        BackgroundTransparency = 0.15,
-        Size = UDim2.new(0, 220, 0, 55)
-    }}):Play()
-    TweenService:Create(buttonGlow, TweenInfo.new(0.3), {{
-        BackgroundTransparency = 0.8
-    }}):Play()
-end
-
-continueButton.MouseEnter:Connect(onButtonEnter)
-continueButton.MouseLeave:Connect(onButtonLeave)
-
--- 🎬 FUNCIÓN PARA CERRAR LA INTRO (con efecto)
+-- Cerrar intro
 local function closeIntro()
-    -- Efecto de cierre con explosión de partículas
-    TweenService:Create(container, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        BackgroundTransparency = 1,
-        Size = UDim2.new(0, 800, 0, 500)
-    }}):Play()
-    
-    TweenService:Create(background, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
+    TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
         BackgroundTransparency = 1
     }}):Play()
-    
-    wait(0.8)
+    TweenService:Create(background, TweenInfo.new(0.5), {{
+        BackgroundTransparency = 1
+    }}):Play()
+    wait(0.6)
     screenGui:Destroy()
 end
 
@@ -1332,127 +1202,32 @@ end)
 
 -- ========== ANIMACIONES ==========
 
--- 1. ESCRITURA CON EFECTO DE REBOTE
+-- Efecto de escritura
 coroutine.wrap(function()
-    local fullText = config.welcomeText
-    local delay = 0.06
     for i = 1, #fullText do
-        local currentText = fullText:sub(1, i)
-        titleLabel.Text = currentText
-        titleShadow.Text = currentText
-        
-        -- Efecto de rebote en cada letra
-        TweenService:Create(titleLabel, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {{
-            TextSize = 42
-        }}):Play()
-        wait(0.05)
-        TweenService:Create(titleLabel, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-            TextSize = 38
-        }}):Play()
-        wait(delay)
+        displayedText = fullText:sub(1, i)
+        titleLabel.Text = displayedText
+        wait(0.07)
     end
-    
-    -- Mostrar subtítulo
-    TweenService:Create(subLabel, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        TextTransparency = 0
-    }}):Play()
-    
-    -- Mostrar botón con efecto
-    wait(0.5)
     continueButton.Visible = true
-    TweenService:Create(continueButton, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        BackgroundTransparency = 0.1
-    }}):Play()
-    TweenService:Create(continueButton, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        Size = UDim2.new(0, 240, 0, 60)
-    }}):Play()
+    TweenService:Create(continueButton, TweenInfo.new(0.5), {{BackgroundTransparency = 0.2}}):Play()
 end)()
 
--- 2. ANIMACIÓN DE PARTÍCULAS
-coroutine.wrap(function()
-    local time = 0
-    while screenGui.Parent do
-        time = time + 0.02
-        for _, p in ipairs(particles) do
-            local x = p.baseX + math.sin(time * p.speedX + p.phase) * 0.03
-            local y = p.baseY + math.cos(time * p.speedY + p.phase) * 0.03
-            p.frame.Position = UDim2.new(x, 0, y, 0)
-            
-            -- Cambio de tamaño y opacidad
-            local scale = 0.5 + math.sin(time * 2 + p.phase) * 0.5
-            p.frame.Size = UDim2.new(0, p.size * (0.5 + scale * 0.5), 0, p.size * (0.5 + scale * 0.5))
-            p.frame.BackgroundTransparency = 0.3 + (1 - scale) * 0.5
-            
-            -- Cambio de color según posición
-            local colorBlend = (x + y) / 2
-            p.frame.BackgroundColor3 = Color3.fromRGB(
-                255 * (0.5 + math.sin(time + p.phase) * 0.3),
-                150 * (0.5 + math.cos(time * 0.7 + p.phase) * 0.3),
-                200 * (0.5 + math.sin(time * 0.5 + p.phase * 0.5) * 0.3)
-            )
-        end
-        wait(0.03)
-    end
-end)()
-
--- 3. AURORA BOREAL (fondo animado)
-coroutine.wrap(function()
-    local rotation = 0
-    while screenGui.Parent do
-        rotation = rotation + 0.3
-        bgGradient.Rotation = rotation
-        wait(0.05)
-    end
-end)()
-
--- 4. BORDE RGB ANIMADO
-coroutine.wrap(function()
-    local rotation = 0
-    while screenGui.Parent do
-        rotation = rotation + 0.5
-        borderGradient.Rotation = rotation
-        wait(0.05)
-    end
-end)()
-
--- 5. PULSO DEL ICONO
+-- Pulso del borde
 coroutine.wrap(function()
     while screenGui.Parent do
-        TweenService:Create(iconContainer, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
-            BackgroundTransparency = 0.1,
-            Size = UDim2.new(0, 85, 0, 85)
+        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
+            BackgroundTransparency = 0.4
         }}):Play()
-        wait(1)
-        TweenService:Create(iconContainer, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
-            BackgroundTransparency = 0.3,
-            Size = UDim2.new(0, 75, 0, 75)
+        wait(2)
+        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
+            BackgroundTransparency = 0.7
         }}):Play()
-        wait(1)
+        wait(2)
     end
 end)()
 
--- 6. EFECTO DE ONDA EN EL BOTÓN (cuando se hace clic)
-continueButton.MouseButton1Down:Connect(function()
-    local wave = Instance.new("Frame")
-    wave.Size = UDim2.new(1, 0, 1, 0)
-    wave.Position = UDim2.new(0.5, -0.5, 0.5, -0.5)
-    wave.BackgroundColor3 = config.accentColor2
-    wave.BackgroundTransparency = 0.5
-    wave.BorderSizePixel = 0
-    wave.Parent = continueButton
-    wave.AnchorPoint = Vector2.new(0.5, 0.5)
-    
-    TweenService:Create(wave, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        Size = UDim2.new(1.5, 0, 1.5, 0),
-        BackgroundTransparency = 1
-    }}):Play()
-    wait(0.4)
-    wave:Destroy()
-end)
-
--- ========== FIN ==========
-print("🎬 Intro de la ostia generada por Stick Hub")
-print("🔥 Disfruta del espectáculo")
+print("Intro generada por Stick Hub")
 """
     return template
 
@@ -1603,7 +1378,7 @@ async def deobf_command(ctx, *, loadstring):
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO !intro (GENERADOR DE INTRO DE LA OSTIA)
+# COMANDO !intro (GENERADOR DE INTRO CORREGIDO)
 # =============================================
 @bot.command(name='intro')
 async def intro_command(ctx, *, texto):
@@ -1619,8 +1394,8 @@ async def intro_command(ctx, *, texto):
 
     try:
         await ctx.reply(
-            content="🎬 **Intro de la ostia generada** – Efectos visuales de alto nivel\n⬇️ Descarga y ejecuta en Roblox:",
-            file=discord.File(temp_path, filename="intro_ostia.lua")
+            content="🎬 **Intro generada** – Efectos visuales atractivos y compatibilidad total.\n⬇️ Descarga y ejecuta en Roblox:",
+            file=discord.File(temp_path, filename="intro.lua")
         )
     finally:
         os.unlink(temp_path)
@@ -1651,7 +1426,7 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🎬 !intro',
-        value='Genera una intro de la ostia con efectos visuales impresionantes.\nEjemplo: `!intro ¡Bienvenido a Stick Hub!`',
+        value='Genera una intro personalizada para tu servidor de Roblox.\nEjemplo: `!intro ¡Bienvenido a Stick Hub!`',
         inline=False
     )
     embed.add_field(
