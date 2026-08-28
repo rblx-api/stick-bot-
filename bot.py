@@ -1067,7 +1067,6 @@ end
 # FUNCIÓN PARA GENERAR INTRO (PARA !intro)
 # =============================================
 def generar_intro(texto):
-    # Escapar texto para Lua
     texto_escapado = texto.replace('"', '\\"').replace('\n', '\\n')
     
     template = f"""
@@ -1111,11 +1110,11 @@ background.Parent = screenGui
 
 -- Gradiente de fondo
 local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new({
+gradient.Color = ColorSequence.new({{
     ColorSequenceKeypoint.new(0, config.bgColor),
     ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 20, 50)),
     ColorSequenceKeypoint.new(1, config.bgColor)
-})
+}})
 gradient.Parent = background
 
 -- Efecto de partículas (puntos brillantes)
@@ -1162,11 +1161,11 @@ border.BorderSizePixel = 0
 border.Parent = container
 
 local borderGradient = Instance.new("UIGradient")
-borderGradient.Color = ColorSequence.new({
+borderGradient.Color = ColorSequence.new({{
     ColorSequenceKeypoint.new(0, config.accentColor),
     ColorSequenceKeypoint.new(0.5, config.secondaryColor),
     ColorSequenceKeypoint.new(1, config.accentColor)
-})
+}})
 borderGradient.Parent = border
 
 -- Título (principal)
@@ -1464,10 +1463,8 @@ async def intro_command(ctx, *, texto):
         await ctx.reply("❌ Debes escribir un mensaje para la intro. Ejemplo: `!intro ¡Bienvenido a mi servidor!`")
         return
 
-    # Generar el script de la intro
     script_lua = generar_intro(texto)
 
-    # Crear archivo temporal
     with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
         f.write(script_lua)
         temp_path = f.name
@@ -2004,7 +2001,6 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -2014,7 +2010,6 @@ async def on_message(message):
             pass
         return
 
-    # Sistema de IA
     if message.channel.id == CANAL_IA_ID:
         if bot.user.mentioned_in(message):
             contenido = message.content
@@ -2035,7 +2030,6 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # SISTEMA DE MODERACIÓN AUTOMÁTICA
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -2075,7 +2069,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS
+# SLASH COMMANDS (COMPLETOS)
 # =============================================
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
@@ -2135,7 +2129,7 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
             timestamp=datetime.now()
         )
         await canal_logs.send(embed=log_embed)
-    logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados)
+    logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
 
 @bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
 @discord.app_commands.describe(accion="Acción a realizar (add o remove)", usuario="Usuario a agregar o quitar de la blacklist")
