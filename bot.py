@@ -358,8 +358,12 @@ async def interpretar_intro_con_ia(pedido):
         '"texto_carga":"Cargando...","inicial":"A"}\n'
         "estilo debe ser uno de: neon, cyber, gamer, elegante, minimal, space, oscuro. "
         "Los colores son RGB 0-255 según el pedido (oscuro, rosa, futurista, oro, etc.). "
-        "titulo, subtitulo y boton salen del pedido; si no hay botón usa CONTINUAR. "
-        "Mantén el contenido apto para todas las edades. No inventes temas violentos, odio o contenido para adultos."
+        "titulo debe ser CORTO: solo el nombre del hub (1 a 3 palabras). "
+        "NUNCA copies la frase completa del usuario. "
+        "Si dice 'hazme una intro oscura que se llame Night Hub', el titulo es Night Hub. "
+        "subtitulo es una frase de bienvenida corta, no el pedido. "
+        "si no hay botón usa CONTINUAR. "
+        "Mantén el contenido apto para todas las edades."
     )
     modelos = [
         "llama-3.1-8b-instant",
@@ -422,11 +426,11 @@ def mezclar_config_intro(pedido, datos_ia=None):
     boton = str(datos_ia.get("boton") or "").strip()
     estilo_ia = str(datos_ia.get("estilo") or "").strip().lower()
     if titulo:
-        cfg["titulo"] = titulo[:48]
-    if subtitulo:
-        cfg["subtitulo"] = subtitulo[:80]
-    if boton:
-        cfg["boton"] = boton[:22]
+        cfg["titulo"] = extraer_nombre_intro(titulo) if _parece_pedido(titulo) else titulo[:28]
+    if subtitulo and not _parece_pedido(subtitulo):
+        cfg["subtitulo"] = subtitulo[:48]
+    if boton and not _parece_pedido(boton):
+        cfg["boton"] = boton[:16]
     if estilo_ia in ESTILOS_INTRO:
         cfg["estilo"] = estilo_ia
         estilo = ESTILOS_INTRO[estilo_ia]
@@ -1308,6 +1312,93 @@ COLORES_INTRO = {
 }
 
 
+PALABRAS_RELLENO_INTRO = {
+    "hazme", "haz", "hace", "hacer", "crea", "creame", "créame", "quiero", "quería",
+    "una", "un", "la", "el", "los", "las", "de", "del", "en", "con", "para", "por",
+    "mi", "tu", "su", "me", "te", "que", "como", "cómo", "mas", "más", "muy",
+    "intro", "intros", "pantalla", "bienvenida", "roblox", "script", "executor",
+    "algo", "asi", "así", "tipo", "estilo", "tema", "color", "colores", "fondo",
+    "sea", "ser", "esté", "este", "esta", "esto", "tienen", "tenga", "pongas",
+    "pon", "ponle", "dile", "diga", "diga", "llamada", "llamado", "llame",
+    "boton", "botón", "button", "texto", "letras", "letra", "solo", "solamente",
+    "tambien", "también", "despues", "después", "cuando", "si", "no", "ya",
+    "bienvenido", "experiencia", "servidor", "juego", "visual", "animada",
+    "animado", "bonita", "bonito", "epica", "épica", "pro", "buena", "mejor",
+    "titulo", "título", "title", "subtitulo", "subtítulo", "subtitle",
+    "dé", "da", "dar", "nuevo", "nueva",
+}
+
+ESTILO_ALIASES = {
+    "futurista": "cyber",
+    "cyberpunk": "cyber",
+    "tecnologico": "cyber",
+    "tecnológico": "cyber",
+    "oscura": "oscuro",
+    "dark": "oscuro",
+    "negra": "oscuro",
+    "fuego": "gamer",
+    "naranja": "gamer",
+    "gamer": "gamer",
+    "oro": "elegante",
+    "dorada": "elegante",
+    "lujo": "elegante",
+    "luxury": "elegante",
+    "minimalista": "minimal",
+    "limpia": "minimal",
+    "espacial": "space",
+    "galaxia": "space",
+    "espacio": "space",
+    "rosa": "neon",
+    "neón": "neon",
+}
+
+
+def _parece_pedido(texto):
+    low = (texto or "").lower()
+    pistas = ("hazme", "quiero", "crea", "intro", "una intro", "que sea", "que tenga")
+    return any(p in low for p in pistas) or len((texto or "").split()) > 6
+
+
+def extraer_nombre_intro(texto):
+    original = (texto or "").strip()
+    if not original:
+        return "STICK HUB"
+
+    quoted = re.search(r'["“”\']([^"“”\']{2,40})["“”\']', original)
+    if quoted:
+        return quoted.group(1).strip()
+
+    named = re.search(
+        r'(?:se\s+llame|llamad[oa]|nombre(?:\s+de)?|\bt[ií]tul[oóa]\b|\btitle\b|llamarse)\s+["\']?([A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9][A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9\s]{1,30})',
+        original,
+        flags=re.IGNORECASE,
+    )
+    if named:
+        valor = re.split(r'\s+(?:y|con|que|sub|bot[oó]n|button|,)\s+', named.group(1), maxsplit=1, flags=re.IGNORECASE)[0]
+        return valor.strip(" .,!¡¿?")
+
+    hubs = re.findall(
+        r'\b([A-Za-záéíóúüñÁÉÍÓÚÜÑ][A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9]{1,18})\s+(Hub|Scripts?|Community|Comunidad)\b',
+        original,
+        flags=re.IGNORECASE,
+    )
+    for nombre, tipo in hubs:
+        low = nombre.lower()
+        if low not in PALABRAS_RELLENO_INTRO and low not in ESTILO_ALIASES and low not in COLORES_INTRO:
+            return f"{nombre} {tipo}"
+
+    palabras = re.findall(r"[A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9]+", original)
+    utiles = [p for p in palabras if p.lower() not in PALABRAS_RELLENO_INTRO and p.lower() not in ESTILOS_INTRO and p.lower() not in COLORES_INTRO and p.lower() not in ESTILO_ALIASES]
+    if utiles:
+        if len(utiles) == 1:
+            return utiles[0].upper() if len(utiles[0]) <= 4 else utiles[0].title()
+        return " ".join(utiles[:3]).title()
+
+    if len(original.split()) <= 4 and not _parece_pedido(original):
+        return original
+    return "STICK HUB"
+
+
 def parsear_pedido_intro(texto):
     original = (texto or "").strip()
     trabajo = original
@@ -1316,7 +1407,7 @@ def parsear_pedido_intro(texto):
     cfg = {
         "estilo": "neon",
         "titulo": "",
-        "subtitulo": "Bienvenido a la experiencia",
+        "subtitulo": "Bienvenido",
         "boton": "CONTINUAR",
         "accent": None,
         "pedido": original,
@@ -1350,11 +1441,15 @@ def parsear_pedido_intro(texto):
     if estilo and estilo.lower() in ESTILOS_INTRO:
         cfg["estilo"] = estilo.lower()
     else:
-        for nombre in ESTILOS_INTRO:
-            if re.search(rf"\b{nombre}\b", lower):
-                cfg["estilo"] = nombre
-                trabajo = re.sub(rf"\b{nombre}\b", " ", trabajo, flags=re.IGNORECASE)
+        for alias, destino in ESTILO_ALIASES.items():
+            if re.search(rf"\b{alias}\b", lower):
+                cfg["estilo"] = destino
                 break
+        else:
+            for nombre in ESTILOS_INTRO:
+                if re.search(rf"\b{nombre}\b", lower):
+                    cfg["estilo"] = nombre
+                    break
 
     if color and color.lower() in COLORES_INTRO:
         cfg["accent"] = COLORES_INTRO[color.lower()]
@@ -1362,37 +1457,57 @@ def parsear_pedido_intro(texto):
         for nombre, rgb in COLORES_INTRO.items():
             if re.search(rf"\b{nombre}\b", lower):
                 cfg["accent"] = rgb
-                trabajo = re.sub(rf"\b{nombre}\b", " ", trabajo, flags=re.IGNORECASE)
                 break
 
-    if titulo:
+    if titulo and not _parece_pedido(titulo) and len(titulo.split()) <= 3:
         cfg["titulo"] = titulo
-    if subtitulo:
+    if subtitulo and not _parece_pedido(subtitulo):
         cfg["subtitulo"] = subtitulo
     if boton:
         cfg["boton"] = boton.upper() if len(boton) <= 18 else boton
+    else:
+        boton_frase = re.search(
+            r'(?:bot[oó]n|button|diga)\s+(?:diga\s+)?["\']?([A-Za-záéíóúüñÁÉÍÓÚÜÑ]{2,16})',
+            original,
+            flags=re.IGNORECASE,
+        )
+        if boton_frase:
+            cfg["boton"] = boton_frase.group(1).upper()
 
     trabajo = re.sub(r"\s+", " ", trabajo).strip(" -|,")
 
     if "|" in trabajo:
         partes = [p.strip() for p in trabajo.split("|") if p.strip()]
-        if partes and not titulo:
-            cfg["titulo"] = partes[0]
-        if len(partes) > 1 and not subtitulo:
-            cfg["subtitulo"] = partes[1]
-        if len(partes) > 2 and not boton:
+        if partes and not cfg["titulo"]:
+            cfg["titulo"] = partes[0] if not _parece_pedido(partes[0]) else extraer_nombre_intro(partes[0])
+        if len(partes) > 1 and cfg["subtitulo"] == "Bienvenido":
+            cfg["subtitulo"] = partes[1][:80]
+        if len(partes) > 2 and cfg["boton"] == "CONTINUAR":
             cfg["boton"] = partes[2].upper()
     elif not cfg["titulo"]:
-        cfg["titulo"] = trabajo or "Bienvenido"
+        cfg["titulo"] = extraer_nombre_intro(original)
 
-    if not cfg["titulo"]:
-        cfg["titulo"] = "Bienvenido"
-    if len(cfg["titulo"]) > 48:
-        cfg["titulo"] = cfg["titulo"][:48]
-    if len(cfg["subtitulo"]) > 80:
-        cfg["subtitulo"] = cfg["subtitulo"][:80]
-    if len(cfg["boton"]) > 22:
-        cfg["boton"] = cfg["boton"][:22]
+    nombre_limpio = extraer_nombre_intro(original)
+    if not cfg["titulo"] or _parece_pedido(cfg["titulo"]) or len(cfg["titulo"].split()) > 3:
+        cfg["titulo"] = nombre_limpio
+    if cfg["subtitulo"] == "Bienvenido":
+        if cfg["estilo"] == "cyber":
+            cfg["subtitulo"] = "Sistema iniciado"
+        elif cfg["estilo"] == "elegante":
+            cfg["subtitulo"] = "Bienvenido de nuevo"
+        elif cfg["estilo"] == "oscuro":
+            cfg["subtitulo"] = "Acceso autorizado"
+        elif cfg["estilo"] == "gamer":
+            cfg["subtitulo"] = "Listo para jugar"
+        else:
+            cfg["subtitulo"] = f"Bienvenido a {cfg['titulo']}"
+
+    if len(cfg["titulo"]) > 28:
+        cfg["titulo"] = extraer_nombre_intro(cfg["titulo"])[:28]
+    if len(cfg["subtitulo"]) > 48:
+        cfg["subtitulo"] = cfg["subtitulo"][:48]
+    if len(cfg["boton"]) > 16:
+        cfg["boton"] = cfg["boton"][:16]
 
     return cfg
 
@@ -1400,6 +1515,8 @@ def parsear_pedido_intro(texto):
 def generar_intro(texto, cfg=None):
     if cfg is None:
         cfg = mezclar_config_intro(texto)
+    if _parece_pedido(cfg.get("titulo")):
+        cfg["titulo"] = extraer_nombre_intro(cfg.get("pedido") or texto or "")
     estilo = ESTILOS_INTRO.get(cfg.get("estilo"), ESTILOS_INTRO["neon"])
     accent = cfg.get("accent") or estilo["accent"]
     bg = cfg.get("bg") or estilo["bg"]
@@ -1408,27 +1525,20 @@ def generar_intro(texto, cfg=None):
     sub_col = cfg.get("subcol") or estilo["sub"]
     card = cfg.get("card") or estilo["card"]
     inicial = _lua_escape((cfg.get("inicial") or cfg.get("titulo", "S")[:1]).upper() or "S")
-    titulo = _lua_escape(cfg.get("titulo") or "Bienvenido")
-    subtitulo = _lua_escape(cfg.get("subtitulo") or "Bienvenido a la experiencia")
+    titulo = _lua_escape(cfg.get("titulo") or "STICK HUB")
+    subtitulo = _lua_escape(cfg.get("subtitulo") or "Bienvenido")
     boton = _lua_escape(cfg.get("boton") or "CONTINUAR")
-    carga = _lua_escape(cfg.get("carga") or "Cargando...")
-    pedido = _lua_escape((cfg.get("pedido") or texto or "")[:80])
+    carga = _lua_escape(cfg.get("carga") or "Cargando interfaz")
 
     template = f"""
--- =============================================
--- INTRO GENERADA POR STICK HUB
--- Estilo: {cfg.get('estilo', 'neon')} | Pedido: {pedido}
--- =============================================
+-- Intro Stick Hub | {cfg.get('estilo', 'neon')}
+-- Ejecuta este archivo en Roblox / tu executor
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
-local player = Players.LocalPlayer
-if not player then
-    player = Players.PlayerAdded:Wait()
-end
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 local config = {{
     bgColor = {_rgb_lua(bg)},
@@ -1456,16 +1566,42 @@ local function stroke(parent, color, thickness, trans)
     s.Color = color
     s.Thickness = thickness or 1.5
     s.Transparency = trans or 0.25
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     s.Parent = parent
     return s
 end
+
+local function getParent()
+    local okHui, hui = pcall(function()
+        if gethui then
+            return gethui()
+        end
+        return nil
+    end)
+    if okHui and hui then
+        return hui
+    end
+    local okCore, core = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if okCore and core then
+        return core
+    end
+    return player:WaitForChild("PlayerGui")
+end
+
+pcall(function()
+    local old = getParent():FindFirstChild("StickHubIntro")
+    if old then old:Destroy() end
+end)
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "StickHubIntro"
 screenGui.IgnoreGuiInset = true
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.DisplayOrder = 999
+screenGui.Parent = getParent()
 
 local background = Instance.new("Frame")
 background.Size = UDim2.fromScale(1, 1)
