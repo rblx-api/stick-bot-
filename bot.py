@@ -310,6 +310,147 @@ async def consultar_groq(pregunta):
         logger.error(f"Error en Groq: {e}")
         return f"❌ Error al consultar la IA: {str(e)[:100]}"
 
+
+def _limpiar_json_ia(texto):
+    if not texto:
+        return None
+    texto = texto.strip()
+    bloque = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, flags=re.DOTALL)
+    if bloque:
+        texto = bloque.group(1)
+    else:
+        llave = re.search(r"\{.*\}", texto, flags=re.DOTALL)
+        if not llave:
+            return None
+        texto = llave.group(0)
+    try:
+        return json.loads(texto)
+    except Exception:
+        return None
+
+
+def _rgb_seguro(valor, fallback):
+    if not isinstance(valor, (list, tuple)) or len(valor) < 3:
+        return fallback
+    try:
+        return (
+            max(0, min(255, int(valor[0]))),
+            max(0, min(255, int(valor[1]))),
+            max(0, min(255, int(valor[2]))),
+        )
+    except Exception:
+        return fallback
+
+
+async def interpretar_intro_con_ia(pedido):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    sistema = (
+        "Eres un diseñador de intros GUI para Roblox. El usuario describe en lenguaje natural "
+        "cómo quiere la pantalla de bienvenida. Responde SOLO un JSON válido, sin markdown y sin texto extra. "
+        "Campos obligatorios:\n"
+        '{"titulo":"","subtitulo":"","boton":"","estilo":"neon",'
+        '"color_fondo":[r,g,b],"color_medio":[r,g,b],"color_acento":[r,g,b],'
+        '"color_texto":[r,g,b],"color_subtitulo":[r,g,b],"color_tarjeta":[r,g,b],'
+        '"texto_carga":"Cargando...","inicial":"A"}\n'
+        "estilo debe ser uno de: neon, cyber, gamer, elegante, minimal, space, oscuro. "
+        "Los colores son RGB 0-255 según el pedido (oscuro, rosa, futurista, oro, etc.). "
+        "titulo, subtitulo y boton salen del pedido; si no hay botón usa CONTINUAR. "
+        "Mantén el contenido apto para todas las edades. No inventes temas violentos, odio o contenido para adultos."
+    )
+    modelos = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "mixtral-8x7b-32768",
+    ]
+    ultimo_error = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            for modelo in modelos:
+                data = {
+                    "model": modelo,
+                    "messages": [
+                        {"role": "system", "content": sistema},
+                        {"role": "user", "content": pedido[:600]}
+                    ],
+                    "temperature": 0.35,
+                    "max_tokens": 500,
+                    "top_p": 0.9
+                }
+                try:
+                    async with session.post(url, headers=headers, json=data, timeout=30) as response:
+                        if response.status != 200:
+                            ultimo_error = f"{modelo}:{response.status}"
+                            continue
+                        resultado = await response.json()
+                        contenido = resultado["choices"][0]["message"]["content"]
+                        parsed = _limpiar_json_ia(contenido)
+                        if parsed:
+                            return parsed
+                        ultimo_error = f"{modelo}:json"
+                except Exception as e:
+                    ultimo_error = str(e)[:120]
+                    continue
+    except Exception as e:
+        logger.error(f"Error interpretando intro: {e}")
+        return None
+    if ultimo_error:
+        logger.error(f"No se pudo interpretar la intro con IA: {ultimo_error}")
+    return None
+
+
+def mezclar_config_intro(pedido, datos_ia=None):
+    cfg = parsear_pedido_intro(pedido)
+    estilo = ESTILOS_INTRO.get(cfg["estilo"], ESTILOS_INTRO["neon"])
+    cfg["bg"] = estilo["bg"]
+    cfg["mid"] = estilo["mid"]
+    cfg["text"] = estilo["text"]
+    cfg["subcol"] = estilo["sub"]
+    cfg["card"] = estilo["card"]
+    cfg["carga"] = "Cargando..."
+    if not datos_ia or not isinstance(datos_ia, dict):
+        if not cfg.get("accent"):
+            cfg["accent"] = estilo["accent"]
+        cfg["inicial"] = (cfg.get("titulo") or "S")[:1].upper()
+        return cfg
+
+    titulo = str(datos_ia.get("titulo") or "").strip()
+    subtitulo = str(datos_ia.get("subtitulo") or "").strip()
+    boton = str(datos_ia.get("boton") or "").strip()
+    estilo_ia = str(datos_ia.get("estilo") or "").strip().lower()
+    if titulo:
+        cfg["titulo"] = titulo[:48]
+    if subtitulo:
+        cfg["subtitulo"] = subtitulo[:80]
+    if boton:
+        cfg["boton"] = boton[:22]
+    if estilo_ia in ESTILOS_INTRO:
+        cfg["estilo"] = estilo_ia
+        estilo = ESTILOS_INTRO[estilo_ia]
+        cfg["bg"] = estilo["bg"]
+        cfg["mid"] = estilo["mid"]
+        cfg["text"] = estilo["text"]
+        cfg["subcol"] = estilo["sub"]
+        cfg["card"] = estilo["card"]
+        if not cfg.get("accent"):
+            cfg["accent"] = estilo["accent"]
+
+    cfg["bg"] = _rgb_seguro(datos_ia.get("color_fondo"), cfg["bg"])
+    cfg["mid"] = _rgb_seguro(datos_ia.get("color_medio"), cfg["mid"])
+    cfg["accent"] = _rgb_seguro(datos_ia.get("color_acento"), cfg.get("accent") or estilo["accent"])
+    cfg["text"] = _rgb_seguro(datos_ia.get("color_texto"), cfg["text"])
+    cfg["subcol"] = _rgb_seguro(datos_ia.get("color_subtitulo"), cfg["subcol"])
+    cfg["card"] = _rgb_seguro(datos_ia.get("color_tarjeta"), cfg["card"])
+    carga = str(datos_ia.get("texto_carga") or "").strip()
+    if carga:
+        cfg["carga"] = carga[:28]
+    inicial = str(datos_ia.get("inicial") or "").strip()
+    cfg["inicial"] = (inicial[:1] if inicial else cfg["titulo"][:1]).upper() or "S"
+    return cfg
+
 # =============================================
 # FUNCIÓN PARA OBTENER CATEGORÍA DE TICKETS
 # =============================================
@@ -1256,19 +1397,27 @@ def parsear_pedido_intro(texto):
     return cfg
 
 
-def generar_intro(texto):
-    cfg = parsear_pedido_intro(texto)
-    estilo = ESTILOS_INTRO.get(cfg["estilo"], ESTILOS_INTRO["neon"])
-    accent = cfg["accent"] or estilo["accent"]
-    inicial = _lua_escape(cfg["titulo"][:1].upper() or "S")
-    titulo = _lua_escape(cfg["titulo"])
-    subtitulo = _lua_escape(cfg["subtitulo"])
-    boton = _lua_escape(cfg["boton"])
+def generar_intro(texto, cfg=None):
+    if cfg is None:
+        cfg = mezclar_config_intro(texto)
+    estilo = ESTILOS_INTRO.get(cfg.get("estilo"), ESTILOS_INTRO["neon"])
+    accent = cfg.get("accent") or estilo["accent"]
+    bg = cfg.get("bg") or estilo["bg"]
+    mid = cfg.get("mid") or estilo["mid"]
+    text_col = cfg.get("text") or estilo["text"]
+    sub_col = cfg.get("subcol") or estilo["sub"]
+    card = cfg.get("card") or estilo["card"]
+    inicial = _lua_escape((cfg.get("inicial") or cfg.get("titulo", "S")[:1]).upper() or "S")
+    titulo = _lua_escape(cfg.get("titulo") or "Bienvenido")
+    subtitulo = _lua_escape(cfg.get("subtitulo") or "Bienvenido a la experiencia")
+    boton = _lua_escape(cfg.get("boton") or "CONTINUAR")
+    carga = _lua_escape(cfg.get("carga") or "Cargando...")
+    pedido = _lua_escape((cfg.get("pedido") or texto or "")[:80])
 
     template = f"""
 -- =============================================
 -- INTRO GENERADA POR STICK HUB
--- Estilo: {cfg['estilo']} | Pedido: { _lua_escape(cfg['pedido'][:80]) }
+-- Estilo: {cfg.get('estilo', 'neon')} | Pedido: {pedido}
 -- =============================================
 
 local Players = game:GetService("Players")
@@ -1282,15 +1431,16 @@ if not player then
 end
 
 local config = {{
-    bgColor = {_rgb_lua(estilo['bg'])},
-    midColor = {_rgb_lua(estilo['mid'])},
+    bgColor = {_rgb_lua(bg)},
+    midColor = {_rgb_lua(mid)},
     accentColor = {_rgb_lua(accent)},
-    textColor = {_rgb_lua(estilo['text'])},
-    subColor = {_rgb_lua(estilo['sub'])},
-    cardColor = {_rgb_lua(estilo['card'])},
+    textColor = {_rgb_lua(text_col)},
+    subColor = {_rgb_lua(sub_col)},
+    cardColor = {_rgb_lua(card)},
     titleText = "{titulo}",
     subText = "{subtitulo}",
     buttonText = "{boton}",
+    loadText = "{carga}",
     initial = "{inicial}"
 }}
 
@@ -1444,10 +1594,20 @@ barFill.BorderSizePixel = 0
 barFill.Parent = barBack
 corner(barFill, 8)
 
+local loadLabel = Instance.new("TextLabel")
+loadLabel.BackgroundTransparency = 1
+loadLabel.Size = UDim2.new(1, -40, 0, 18)
+loadLabel.Position = UDim2.fromOffset(20, 216)
+loadLabel.Text = config.loadText
+loadLabel.TextColor3 = config.subColor
+loadLabel.TextSize = 12
+loadLabel.Font = Enum.Font.Gotham
+loadLabel.Parent = container
+
 local continueButton = Instance.new("TextButton")
 continueButton.AnchorPoint = Vector2.new(0.5, 0)
 continueButton.Size = UDim2.fromOffset(210, 48)
-continueButton.Position = UDim2.new(0.5, 0, 0, 236)
+continueButton.Position = UDim2.new(0.5, 0, 0, 248)
 continueButton.BackgroundColor3 = config.accentColor
 continueButton.BackgroundTransparency = 0.12
 continueButton.BorderSizePixel = 0
@@ -1512,6 +1672,7 @@ task.spawn(function()
     end
     TweenService:Create(subLabel, TweenInfo.new(0.35), {{TextTransparency = 0}}):Play()
     task.wait(0.2)
+    TweenService:Create(loadLabel, TweenInfo.new(0.2), {{TextTransparency = 1}}):Play()
     continueButton.Visible = true
     continueButton.TextTransparency = 1
     TweenService:Create(continueButton, TweenInfo.new(0.28), {{TextTransparency = 0}}):Play()
@@ -1687,36 +1848,39 @@ async def deobf_command(ctx, *, loadstring):
 async def intro_command(ctx, *, texto=None):
     if not texto:
         await ctx.reply(
-            "❌ Dime cómo quieres la intro.\n"
+            "❌ Dime cómo quieres la intro, en lenguaje normal.\n"
             "Ejemplos:\n"
-            "• `!intro Bienvenido a Stick Hub`\n"
-            "• `!intro estilo:cyber color:verde Stick Hub | Scripts premium | JUGAR`\n"
-            "• `!intro neon rosa titulo:MI HUB sub:Disfruta el servidor boton:ENTRAR`\n"
-            "Estilos: `neon` `cyber` `gamer` `elegante` `minimal` `space` `oscuro`"
+            "• `!intro una intro oscura para mi hub que se llame Night Scripts y el botón diga ENTRAR`\n"
+            "• `!intro algo cyberpunk azul con el nombre Nexus y que dé la bienvenida`\n"
+            "• `!intro elegante dorada, título Royal Hub, subtítulo Bienvenido de nuevo`"
         )
         return
 
-    cfg = parsear_pedido_intro(texto)
-    script_lua = generar_intro(texto)
+    async with ctx.typing():
+        datos_ia = await interpretar_intro_con_ia(texto)
+        cfg = mezclar_config_intro(texto, datos_ia)
+        script_lua = generar_intro(texto, cfg)
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-        f.write(script_lua)
-        temp_path = f.name
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+            f.write(script_lua)
+            temp_path = f.name
 
-    try:
-        await ctx.reply(
-            content=(
-                "🎬 **Intro generada a tu medida**\n"
-                f"• Estilo: `{cfg['estilo']}`\n"
-                f"• Título: **{cfg['titulo']}**\n"
-                f"• Subtítulo: {cfg['subtitulo']}\n"
-                f"• Botón: {cfg['boton']}\n"
-                "⬇️ Descarga y ejecútalo en Roblox:"
-            ),
-            file=discord.File(temp_path, filename="intro.lua")
-        )
-    finally:
-        os.unlink(temp_path)
+        origen = "IA" if datos_ia else "local"
+        try:
+            await ctx.reply(
+                content=(
+                    "🎬 **Intro de Roblox creada según tu pedido**\n"
+                    f"• Origen: `{origen}`\n"
+                    f"• Estilo: `{cfg['estilo']}`\n"
+                    f"• Título: **{cfg['titulo']}**\n"
+                    f"• Subtítulo: {cfg['subtitulo']}\n"
+                    f"• Botón: {cfg['boton']}\n"
+                    "⬇️ Ejecuta el archivo en Roblox:"
+                ),
+                file=discord.File(temp_path, filename="intro.lua")
+            )
+        finally:
+            os.unlink(temp_path)
 
 # =============================================
 # COMANDO .gethelp
@@ -1745,8 +1909,8 @@ async def gethelp_command(ctx):
     embed.add_field(
         name='🎬 !intro',
         value=(
-            'Genera una intro según lo que pidas (estilo, color, título, subtítulo y botón).\n'
-            'Ejemplo: `!intro estilo:cyber color:azul Stick Hub | Bienvenido | JUGAR`'
+            'Describe la intro como quieras y el bot la arma para Roblox.\n'
+            'Ejemplo: `!intro intro oscura cyberpunk para Night Hub, botón ENTRAR`'
         ),
         inline=False
     )
