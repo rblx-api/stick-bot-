@@ -1064,179 +1064,473 @@ end
     return template.replace("{loadstring_text}", loadstring_text).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
-# FUNCIÓN PARA GENERAR INTRO (FUNCIONAL Y COMPATIBLE)
+# FUNCIÓN PARA GENERAR INTRO SEGÚN LO QUE PIDAS
 # =============================================
+def _lua_escape(texto):
+    if texto is None:
+        return ""
+    return (
+        str(texto)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", " ")
+        .replace("\r", "")
+    )
+
+
+def _rgb_lua(rgb):
+    return f"Color3.fromRGB({int(rgb[0])}, {int(rgb[1])}, {int(rgb[2])})"
+
+
+ESTILOS_INTRO = {
+    "neon": {
+        "bg": (8, 4, 18),
+        "mid": (28, 8, 48),
+        "accent": (255, 70, 160),
+        "text": (255, 255, 255),
+        "sub": (210, 190, 230),
+        "card": (18, 10, 32),
+    },
+    "cyber": {
+        "bg": (4, 10, 16),
+        "mid": (6, 28, 40),
+        "accent": (0, 230, 255),
+        "text": (230, 255, 255),
+        "sub": (160, 210, 220),
+        "card": (8, 18, 26),
+    },
+    "gamer": {
+        "bg": (10, 8, 6),
+        "mid": (36, 18, 8),
+        "accent": (255, 140, 40),
+        "text": (255, 245, 230),
+        "sub": (220, 190, 150),
+        "card": (22, 14, 10),
+    },
+    "elegante": {
+        "bg": (8, 8, 14),
+        "mid": (22, 18, 10),
+        "accent": (214, 176, 90),
+        "text": (245, 235, 210),
+        "sub": (200, 185, 150),
+        "card": (16, 14, 20),
+    },
+    "minimal": {
+        "bg": (18, 18, 22),
+        "mid": (32, 32, 38),
+        "accent": (240, 240, 245),
+        "text": (245, 245, 250),
+        "sub": (180, 180, 190),
+        "card": (28, 28, 34),
+    },
+    "space": {
+        "bg": (4, 4, 12),
+        "mid": (16, 10, 40),
+        "accent": (160, 90, 255),
+        "text": (240, 235, 255),
+        "sub": (190, 175, 230),
+        "card": (12, 10, 24),
+    },
+    "oscuro": {
+        "bg": (6, 6, 8),
+        "mid": (16, 16, 20),
+        "accent": (90, 200, 130),
+        "text": (235, 235, 240),
+        "sub": (170, 175, 180),
+        "card": (14, 14, 18),
+    },
+}
+
+COLORES_INTRO = {
+    "rojo": (220, 50, 50),
+    "red": (220, 50, 50),
+    "azul": (50, 130, 255),
+    "blue": (50, 130, 255),
+    "verde": (50, 210, 120),
+    "green": (50, 210, 120),
+    "rosa": (255, 70, 160),
+    "pink": (255, 70, 160),
+    "morado": (160, 80, 255),
+    "purple": (160, 80, 255),
+    "naranja": (255, 140, 40),
+    "orange": (255, 140, 40),
+    "amarillo": (255, 210, 60),
+    "yellow": (255, 210, 60),
+    "cyan": (0, 230, 255),
+    "celeste": (80, 200, 255),
+    "blanco": (240, 240, 245),
+    "white": (240, 240, 245),
+    "dorado": (214, 176, 90),
+    "gold": (214, 176, 90),
+    "negro": (20, 20, 24),
+    "black": (20, 20, 24),
+}
+
+
+def parsear_pedido_intro(texto):
+    original = (texto or "").strip()
+    trabajo = original
+    lower = trabajo.lower()
+
+    cfg = {
+        "estilo": "neon",
+        "titulo": "",
+        "subtitulo": "Bienvenido a la experiencia",
+        "boton": "CONTINUAR",
+        "accent": None,
+        "pedido": original,
+    }
+
+    def extraer_clave(claves, multilinea=False):
+        nonlocal trabajo
+        for clave in claves:
+            if multilinea:
+                valor_pat = (
+                    r'(?:"([^"]+)"|\'([^\']+)\'|'
+                    r'(.+?)(?=\s+(?:estilo|style|tema|theme|color|accent|acento|titulo|título|title|nombre|subtitulo|subtítulo|sub|subtitle|desc|boton|botón|button|btn)\s*[:=]|$))'
+                )
+            else:
+                valor_pat = r'(?:"([^"]+)"|\'([^\']+)\'|([^\s|]+))'
+            patron = rf'(?:^|\s){clave}\s*[:=]\s*{valor_pat}'
+            match = re.search(patron, trabajo, flags=re.IGNORECASE)
+            if match:
+                valor = next(g for g in match.groups() if g)
+                valor = valor.strip(" -|,")
+                trabajo = (trabajo[:match.start()] + " " + trabajo[match.end():]).strip()
+                return valor
+        return None
+
+    estilo = extraer_clave(["estilo", "style", "tema", "theme"], multilinea=False)
+    color = extraer_clave(["color", "accent", "acento"], multilinea=False)
+    titulo = extraer_clave(["titulo", "título", "title", "nombre"], multilinea=True)
+    subtitulo = extraer_clave(["subtitulo", "subtítulo", "sub", "subtitle", "desc"], multilinea=True)
+    boton = extraer_clave(["boton", "botón", "button", "btn"], multilinea=True)
+
+    if estilo and estilo.lower() in ESTILOS_INTRO:
+        cfg["estilo"] = estilo.lower()
+    else:
+        for nombre in ESTILOS_INTRO:
+            if re.search(rf"\b{nombre}\b", lower):
+                cfg["estilo"] = nombre
+                trabajo = re.sub(rf"\b{nombre}\b", " ", trabajo, flags=re.IGNORECASE)
+                break
+
+    if color and color.lower() in COLORES_INTRO:
+        cfg["accent"] = COLORES_INTRO[color.lower()]
+    else:
+        for nombre, rgb in COLORES_INTRO.items():
+            if re.search(rf"\b{nombre}\b", lower):
+                cfg["accent"] = rgb
+                trabajo = re.sub(rf"\b{nombre}\b", " ", trabajo, flags=re.IGNORECASE)
+                break
+
+    if titulo:
+        cfg["titulo"] = titulo
+    if subtitulo:
+        cfg["subtitulo"] = subtitulo
+    if boton:
+        cfg["boton"] = boton.upper() if len(boton) <= 18 else boton
+
+    trabajo = re.sub(r"\s+", " ", trabajo).strip(" -|,")
+
+    if "|" in trabajo:
+        partes = [p.strip() for p in trabajo.split("|") if p.strip()]
+        if partes and not titulo:
+            cfg["titulo"] = partes[0]
+        if len(partes) > 1 and not subtitulo:
+            cfg["subtitulo"] = partes[1]
+        if len(partes) > 2 and not boton:
+            cfg["boton"] = partes[2].upper()
+    elif not cfg["titulo"]:
+        cfg["titulo"] = trabajo or "Bienvenido"
+
+    if not cfg["titulo"]:
+        cfg["titulo"] = "Bienvenido"
+    if len(cfg["titulo"]) > 48:
+        cfg["titulo"] = cfg["titulo"][:48]
+    if len(cfg["subtitulo"]) > 80:
+        cfg["subtitulo"] = cfg["subtitulo"][:80]
+    if len(cfg["boton"]) > 22:
+        cfg["boton"] = cfg["boton"][:22]
+
+    return cfg
+
+
 def generar_intro(texto):
-    texto_escapado = texto.replace('"', '\\"').replace('\n', '\\n')
-    
-    template = """
+    cfg = parsear_pedido_intro(texto)
+    estilo = ESTILOS_INTRO.get(cfg["estilo"], ESTILOS_INTRO["neon"])
+    accent = cfg["accent"] or estilo["accent"]
+    inicial = _lua_escape(cfg["titulo"][:1].upper() or "S")
+    titulo = _lua_escape(cfg["titulo"])
+    subtitulo = _lua_escape(cfg["subtitulo"])
+    boton = _lua_escape(cfg["boton"])
+
+    template = f"""
 -- =============================================
 -- INTRO GENERADA POR STICK HUB
+-- Estilo: {cfg['estilo']} | Pedido: { _lua_escape(cfg['pedido'][:80]) }
 -- =============================================
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 if not player then
     player = Players.PlayerAdded:Wait()
 end
 
--- Configuración
-local config = {
-    bgColor = Color3.fromRGB(10, 5, 30),
-    accentColor = Color3.fromRGB(255, 70, 130),
-    textColor = Color3.fromRGB(255, 255, 255),
-    welcomeText = \"""" + texto_escapado + """\",
-    buttonText = "▶ CONTINUAR"
-}
+local config = {{
+    bgColor = {_rgb_lua(estilo['bg'])},
+    midColor = {_rgb_lua(estilo['mid'])},
+    accentColor = {_rgb_lua(accent)},
+    textColor = {_rgb_lua(estilo['text'])},
+    subColor = {_rgb_lua(estilo['sub'])},
+    cardColor = {_rgb_lua(estilo['card'])},
+    titleText = "{titulo}",
+    subText = "{subtitulo}",
+    buttonText = "{boton}",
+    initial = "{inicial}"
+}}
 
--- Crear GUI
+local function corner(parent, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius)
+    c.Parent = parent
+    return c
+end
+
+local function stroke(parent, color, thickness, trans)
+    local s = Instance.new("UIStroke")
+    s.Color = color
+    s.Thickness = thickness or 1.5
+    s.Transparency = trans or 0.25
+    s.Parent = parent
+    return s
+end
+
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "IntroGui"
+screenGui.Name = "StickHubIntro"
+screenGui.IgnoreGuiInset = true
 screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- Fondo
 local background = Instance.new("Frame")
-background.Size = UDim2.new(1, 0, 1, 0)
+background.Size = UDim2.fromScale(1, 1)
 background.BackgroundColor3 = config.bgColor
-background.BackgroundTransparency = 0
 background.BorderSizePixel = 0
 background.Parent = screenGui
 
--- Gradiente
 local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new({
+gradient.Color = ColorSequence.new({{
     ColorSequenceKeypoint.new(0, config.bgColor),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 10, 50)),
+    ColorSequenceKeypoint.new(0.5, config.midColor),
     ColorSequenceKeypoint.new(1, config.bgColor)
-})
-gradient.Rotation = 45
+}})
+gradient.Rotation = 35
 gradient.Parent = background
 
--- Marco central
+local particles = Instance.new("Frame")
+particles.BackgroundTransparency = 1
+particles.Size = UDim2.fromScale(1, 1)
+particles.Parent = background
+
+for i = 1, 28 do
+    local dot = Instance.new("Frame")
+    local size = math.random(2, 5)
+    dot.Size = UDim2.fromOffset(size, size)
+    dot.Position = UDim2.new(math.random(), 0, math.random(), 0)
+    dot.BackgroundColor3 = config.accentColor
+    dot.BackgroundTransparency = math.random(35, 75) / 100
+    dot.BorderSizePixel = 0
+    dot.Parent = particles
+    corner(dot, 99)
+    task.spawn(function()
+        while dot.Parent do
+            local ny = dot.Position.Y.Scale - 0.012
+            if ny < -0.02 then
+                ny = 1.02
+            end
+            dot.Position = UDim2.new(dot.Position.X.Scale, 0, ny, 0)
+            task.wait(0.05 + math.random() * 0.04)
+        end
+    end)
+end
+
 local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 500, 0, 280)
-container.Position = UDim2.new(0.5, -250, 0.5, -140)
-container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+container.AnchorPoint = Vector2.new(0.5, 0.5)
+container.Size = UDim2.fromOffset(520, 340)
+container.Position = UDim2.new(0.5, 0, 0.52, 40)
+container.BackgroundColor3 = config.cardColor
 container.BackgroundTransparency = 0.08
 container.BorderSizePixel = 0
 container.Parent = background
-container.AnchorPoint = Vector2.new(0, 0)
+corner(container, 18)
+local cardStroke = stroke(container, config.accentColor, 2, 0.35)
 
--- Borde
-local border = Instance.new("Frame")
-border.Size = UDim2.new(1, 0, 1, 0)
-border.BackgroundColor3 = config.accentColor
-border.BackgroundTransparency = 0.6
-border.BorderSizePixel = 0
-border.Parent = container
+local glow = Instance.new("Frame")
+glow.AnchorPoint = Vector2.new(0.5, 0.5)
+glow.Position = UDim2.fromScale(0.5, 0.5)
+glow.Size = UDim2.new(1, 24, 1, 24)
+glow.BackgroundTransparency = 1
+glow.ZIndex = 0
+glow.Parent = container
+stroke(glow, config.accentColor, 8, 0.82)
 
--- Título
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 4)
+topBar.BackgroundColor3 = config.accentColor
+topBar.BorderSizePixel = 0
+topBar.Parent = container
+corner(topBar, 18)
+
+local badge = Instance.new("Frame")
+badge.Size = UDim2.fromOffset(58, 58)
+badge.Position = UDim2.new(0.5, -29, 0, 22)
+badge.BackgroundColor3 = config.accentColor
+badge.BackgroundTransparency = 0.15
+badge.BorderSizePixel = 0
+badge.Parent = container
+corner(badge, 16)
+
+local badgeText = Instance.new("TextLabel")
+badgeText.BackgroundTransparency = 1
+badgeText.Size = UDim2.fromScale(1, 1)
+badgeText.Text = config.initial
+badgeText.TextColor3 = Color3.fromRGB(255, 255, 255)
+badgeText.TextSize = 28
+badgeText.Font = Enum.Font.GothamBold
+badgeText.Parent = badge
+
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -40, 0, 60)
-titleLabel.Position = UDim2.new(0, 20, 0, 30)
 titleLabel.BackgroundTransparency = 1
+titleLabel.Size = UDim2.new(1, -40, 0, 52)
+titleLabel.Position = UDim2.fromOffset(20, 92)
 titleLabel.Text = ""
 titleLabel.TextColor3 = config.textColor
-titleLabel.TextSize = 34
-titleLabel.TextFont = Enum.Font.GothamBold
-titleLabel.TextXAlignment = Enum.TextXAlignment.Center
-titleLabel.TextYAlignment = Enum.TextYAlignment.Center
+titleLabel.TextSize = 30
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextWrapped = true
 titleLabel.Parent = container
 
--- Subtítulo
 local subLabel = Instance.new("TextLabel")
-subLabel.Size = UDim2.new(1, -40, 0, 30)
-subLabel.Position = UDim2.new(0, 20, 0, 105)
 subLabel.BackgroundTransparency = 1
-subLabel.Text = "✨ Bienvenido a la experiencia"
-subLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
+subLabel.Size = UDim2.new(1, -48, 0, 42)
+subLabel.Position = UDim2.fromOffset(24, 148)
+subLabel.Text = config.subText
+subLabel.TextColor3 = config.subColor
 subLabel.TextSize = 16
-subLabel.TextFont = Enum.Font.Gotham
-subLabel.TextXAlignment = Enum.TextXAlignment.Center
-subLabel.TextYAlignment = Enum.TextYAlignment.Center
-subLabel.Parent = container
+subLabel.Font = Enum.Font.Gotham
+subLabel.TextWrapped = true
 subLabel.TextTransparency = 1
+subLabel.Parent = container
 
--- Botón
+local barBack = Instance.new("Frame")
+barBack.AnchorPoint = Vector2.new(0.5, 0)
+barBack.Size = UDim2.fromOffset(280, 6)
+barBack.Position = UDim2.new(0.5, 0, 0, 206)
+barBack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+barBack.BackgroundTransparency = 0.85
+barBack.BorderSizePixel = 0
+barBack.Parent = container
+corner(barBack, 8)
+
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = config.accentColor
+barFill.BorderSizePixel = 0
+barFill.Parent = barBack
+corner(barFill, 8)
+
 local continueButton = Instance.new("TextButton")
-continueButton.Size = UDim2.new(0, 200, 0, 50)
-continueButton.Position = UDim2.new(0.5, -100, 0, 180)
+continueButton.AnchorPoint = Vector2.new(0.5, 0)
+continueButton.Size = UDim2.fromOffset(210, 48)
+continueButton.Position = UDim2.new(0.5, 0, 0, 236)
 continueButton.BackgroundColor3 = config.accentColor
-continueButton.BackgroundTransparency = 0.3
+continueButton.BackgroundTransparency = 0.12
 continueButton.BorderSizePixel = 0
-continueButton.Text = config.buttonText
+continueButton.Text = "▶  " .. config.buttonText
 continueButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-continueButton.TextSize = 18
-continueButton.TextFont = Enum.Font.GothamBold
-continueButton.Parent = container
-continueButton.AnchorPoint = Vector2.new(0.5, 0.5)
+continueButton.TextSize = 17
+continueButton.Font = Enum.Font.GothamBold
+continueButton.AutoButtonColor = false
 continueButton.Visible = false
+continueButton.Parent = container
+corner(continueButton, 12)
+stroke(continueButton, Color3.fromRGB(255, 255, 255), 1, 0.7)
 
--- Efectos hover
 continueButton.MouseEnter:Connect(function()
-    TweenService:Create(continueButton, TweenInfo.new(0.3), {BackgroundTransparency = 0.1}):Play()
+    TweenService:Create(continueButton, TweenInfo.new(0.18), {{
+        BackgroundTransparency = 0,
+        Size = UDim2.fromOffset(222, 50)
+    }}):Play()
 end)
 continueButton.MouseLeave:Connect(function()
-    TweenService:Create(continueButton, TweenInfo.new(0.3), {BackgroundTransparency = 0.3}):Play()
+    TweenService:Create(continueButton, TweenInfo.new(0.18), {{
+        BackgroundTransparency = 0.12,
+        Size = UDim2.fromOffset(210, 48)
+    }}):Play()
 end)
 
--- Cerrar intro
+local closing = false
 local function closeIntro()
-    TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    if closing then return end
+    closing = true
+    TweenService:Create(container, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {{
+        Position = UDim2.new(0.5, 0, 0.58, 0),
         BackgroundTransparency = 1
-    }):Play()
-    TweenService:Create(background, TweenInfo.new(0.5), {
-        BackgroundTransparency = 1
-    }):Play()
-    wait(0.6)
+    }}):Play()
+    TweenService:Create(background, TweenInfo.new(0.4), {{BackgroundTransparency = 1}}):Play()
+    task.wait(0.42)
     screenGui:Destroy()
 end
 
 continueButton.MouseButton1Click:Connect(closeIntro)
-
--- Cerrar con Escape
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.Escape then
-        closeIntro()
+    if gameProcessed or closing then return end
+    if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
+        if continueButton.Visible then
+            closeIntro()
+        end
     end
 end)
 
--- Efecto de escritura
-local fullText = config.welcomeText
-local displayedText = ""
-coroutine.wrap(function()
-    for i = 1, #fullText do
-        displayedText = fullText:sub(1, i)
-        titleLabel.Text = displayedText
-        wait(0.07)
+task.spawn(function()
+    TweenService:Create(container, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {{
+        Position = UDim2.fromScale(0.5, 0.5)
+    }}):Play()
+    task.wait(0.2)
+    TweenService:Create(barFill, TweenInfo.new(1.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
+        Size = UDim2.fromScale(1, 1)
+    }}):Play()
+    local full = config.titleText
+    for i = 1, #full do
+        titleLabel.Text = string.sub(full, 1, i)
+        task.wait(0.045)
     end
-    -- Mostrar subtítulo
-    TweenService:Create(subLabel, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
-    wait(0.3)
+    TweenService:Create(subLabel, TweenInfo.new(0.35), {{TextTransparency = 0}}):Play()
+    task.wait(0.2)
     continueButton.Visible = true
-    TweenService:Create(continueButton, TweenInfo.new(0.5), {BackgroundTransparency = 0.2}):Play()
-end)()
+    continueButton.TextTransparency = 1
+    TweenService:Create(continueButton, TweenInfo.new(0.28), {{TextTransparency = 0}}):Play()
+end)
 
--- Pulso del borde
-coroutine.wrap(function()
+task.spawn(function()
     while screenGui.Parent do
-        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-            BackgroundTransparency = 0.4
-        }):Play()
-        wait(2)
-        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-            BackgroundTransparency = 0.7
-        }):Play()
-        wait(2)
+        TweenService:Create(cardStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
+            Transparency = 0.12
+        }}):Play()
+        task.wait(1.2)
+        TweenService:Create(cardStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
+            Transparency = 0.45
+        }}):Play()
+        task.wait(1.2)
     end
-end)()
+end)
 
-print("Intro generada por Stick Hub")
+print("Intro Stick Hub lista")
 """
     return template
 
@@ -1387,14 +1681,22 @@ async def deobf_command(ctx, *, loadstring):
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO !intro (GENERADOR DE INTRO FUNCIONAL)
+# COMANDO !intro (GENERADOR SEGÚN LO QUE PIDAS)
 # =============================================
 @bot.command(name='intro')
-async def intro_command(ctx, *, texto):
+async def intro_command(ctx, *, texto=None):
     if not texto:
-        await ctx.reply("❌ Debes escribir un mensaje para la intro. Ejemplo: `!intro ¡Bienvenido a mi servidor!`")
+        await ctx.reply(
+            "❌ Dime cómo quieres la intro.\n"
+            "Ejemplos:\n"
+            "• `!intro Bienvenido a Stick Hub`\n"
+            "• `!intro estilo:cyber color:verde Stick Hub | Scripts premium | JUGAR`\n"
+            "• `!intro neon rosa titulo:MI HUB sub:Disfruta el servidor boton:ENTRAR`\n"
+            "Estilos: `neon` `cyber` `gamer` `elegante` `minimal` `space` `oscuro`"
+        )
         return
 
+    cfg = parsear_pedido_intro(texto)
     script_lua = generar_intro(texto)
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
@@ -1403,7 +1705,14 @@ async def intro_command(ctx, *, texto):
 
     try:
         await ctx.reply(
-            content="🎬 **Intro generada** – Efectos visuales atractivos.\n⬇️ Descarga y ejecuta en Roblox:",
+            content=(
+                "🎬 **Intro generada a tu medida**\n"
+                f"• Estilo: `{cfg['estilo']}`\n"
+                f"• Título: **{cfg['titulo']}**\n"
+                f"• Subtítulo: {cfg['subtitulo']}\n"
+                f"• Botón: {cfg['boton']}\n"
+                "⬇️ Descarga y ejecútalo en Roblox:"
+            ),
             file=discord.File(temp_path, filename="intro.lua")
         )
     finally:
@@ -1435,7 +1744,10 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🎬 !intro',
-        value='Genera una intro personalizada para tu servidor de Roblox.\nEjemplo: `!intro ¡Bienvenido a Stick Hub!`',
+        value=(
+            'Genera una intro según lo que pidas (estilo, color, título, subtítulo y botón).\n'
+            'Ejemplo: `!intro estilo:cyber color:azul Stick Hub | Bienvenido | JUGAR`'
+        ),
         inline=False
     )
     embed.add_field(
