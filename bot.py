@@ -11,6 +11,8 @@ from datetime import datetime
 import asyncio
 import tempfile
 import sys
+import base64
+import zlib
 
 # =============================================
 # CONFIGURACIÓN DE LOGS
@@ -310,151 +312,6 @@ async def consultar_groq(pregunta):
         logger.error(f"Error en Groq: {e}")
         return f"❌ Error al consultar la IA: {str(e)[:100]}"
 
-
-def _limpiar_json_ia(texto):
-    if not texto:
-        return None
-    texto = texto.strip()
-    bloque = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, flags=re.DOTALL)
-    if bloque:
-        texto = bloque.group(1)
-    else:
-        llave = re.search(r"\{.*\}", texto, flags=re.DOTALL)
-        if not llave:
-            return None
-        texto = llave.group(0)
-    try:
-        return json.loads(texto)
-    except Exception:
-        return None
-
-
-def _rgb_seguro(valor, fallback):
-    if not isinstance(valor, (list, tuple)) or len(valor) < 3:
-        return fallback
-    try:
-        return (
-            max(0, min(255, int(valor[0]))),
-            max(0, min(255, int(valor[1]))),
-            max(0, min(255, int(valor[2]))),
-        )
-    except Exception:
-        return fallback
-
-
-async def interpretar_intro_con_ia(pedido):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    sistema = (
-        "Eres un diseñador de intros GUI para Roblox. El usuario describe en lenguaje natural "
-        "cómo quiere la pantalla de bienvenida. Responde SOLO un JSON válido, sin markdown y sin texto extra. "
-        "Campos obligatorios:\n"
-        '{"titulo":"","subtitulo":"","boton":"","estilo":"neon",'
-        '"color_fondo":[r,g,b],"color_medio":[r,g,b],"color_acento":[r,g,b],'
-        '"color_texto":[r,g,b],"color_subtitulo":[r,g,b],"color_tarjeta":[r,g,b],'
-        '"texto_carga":"Cargando...","inicial":"A"}\n'
-        "estilo debe ser uno de: neon, cyber, gamer, elegante, minimal, space, oscuro. "
-        "Los colores son RGB 0-255 según el pedido (oscuro, rosa, futurista, oro, etc.). "
-        "titulo debe ser CORTO: solo el nombre del hub (1 a 3 palabras). "
-        "NUNCA copies la frase completa del usuario. "
-        "Si dice 'hazme una intro oscura que se llame Night Hub', el titulo es Night Hub. "
-        "subtitulo es una frase de bienvenida corta, no el pedido. "
-        "si no hay botón usa CONTINUAR. "
-        "Mantén el contenido apto para todas las edades."
-    )
-    modelos = [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "mixtral-8x7b-32768",
-    ]
-    ultimo_error = None
-    try:
-        async with aiohttp.ClientSession() as session:
-            for modelo in modelos:
-                data = {
-                    "model": modelo,
-                    "messages": [
-                        {"role": "system", "content": sistema},
-                        {"role": "user", "content": pedido[:600]}
-                    ],
-                    "temperature": 0.35,
-                    "max_tokens": 500,
-                    "top_p": 0.9
-                }
-                try:
-                    async with session.post(url, headers=headers, json=data, timeout=30) as response:
-                        if response.status != 200:
-                            ultimo_error = f"{modelo}:{response.status}"
-                            continue
-                        resultado = await response.json()
-                        contenido = resultado["choices"][0]["message"]["content"]
-                        parsed = _limpiar_json_ia(contenido)
-                        if parsed:
-                            return parsed
-                        ultimo_error = f"{modelo}:json"
-                except Exception as e:
-                    ultimo_error = str(e)[:120]
-                    continue
-    except Exception as e:
-        logger.error(f"Error interpretando intro: {e}")
-        return None
-    if ultimo_error:
-        logger.error(f"No se pudo interpretar la intro con IA: {ultimo_error}")
-    return None
-
-
-def mezclar_config_intro(pedido, datos_ia=None):
-    cfg = parsear_pedido_intro(pedido)
-    estilo = ESTILOS_INTRO.get(cfg["estilo"], ESTILOS_INTRO["neon"])
-    cfg["bg"] = estilo["bg"]
-    cfg["mid"] = estilo["mid"]
-    cfg["text"] = estilo["text"]
-    cfg["subcol"] = estilo["sub"]
-    cfg["card"] = estilo["card"]
-    cfg["carga"] = "Cargando..."
-    if not datos_ia or not isinstance(datos_ia, dict):
-        if not cfg.get("accent"):
-            cfg["accent"] = estilo["accent"]
-        cfg["inicial"] = (cfg.get("titulo") or "S")[:1].upper()
-        return cfg
-
-    titulo = str(datos_ia.get("titulo") or "").strip()
-    subtitulo = str(datos_ia.get("subtitulo") or "").strip()
-    boton = str(datos_ia.get("boton") or "").strip()
-    estilo_ia = str(datos_ia.get("estilo") or "").strip().lower()
-    if titulo:
-        cfg["titulo"] = extraer_nombre_intro(titulo) if _parece_pedido(titulo) else titulo[:28]
-    if subtitulo and not _parece_pedido(subtitulo):
-        cfg["subtitulo"] = subtitulo[:48]
-    if boton and not _parece_pedido(boton):
-        cfg["boton"] = boton[:16]
-    if estilo_ia in ESTILOS_INTRO:
-        cfg["estilo"] = estilo_ia
-        estilo = ESTILOS_INTRO[estilo_ia]
-        cfg["bg"] = estilo["bg"]
-        cfg["mid"] = estilo["mid"]
-        cfg["text"] = estilo["text"]
-        cfg["subcol"] = estilo["sub"]
-        cfg["card"] = estilo["card"]
-        if not cfg.get("accent"):
-            cfg["accent"] = estilo["accent"]
-
-    cfg["bg"] = _rgb_seguro(datos_ia.get("color_fondo"), cfg["bg"])
-    cfg["mid"] = _rgb_seguro(datos_ia.get("color_medio"), cfg["mid"])
-    cfg["accent"] = _rgb_seguro(datos_ia.get("color_acento"), cfg.get("accent") or estilo["accent"])
-    cfg["text"] = _rgb_seguro(datos_ia.get("color_texto"), cfg["text"])
-    cfg["subcol"] = _rgb_seguro(datos_ia.get("color_subtitulo"), cfg["subcol"])
-    cfg["card"] = _rgb_seguro(datos_ia.get("color_tarjeta"), cfg["card"])
-    carga = str(datos_ia.get("texto_carga") or "").strip()
-    if carga:
-        cfg["carga"] = carga[:28]
-    inicial = str(datos_ia.get("inicial") or "").strip()
-    cfg["inicial"] = (inicial[:1] if inicial else cfg["titulo"][:1]).upper() or "S"
-    return cfg
-
 # =============================================
 # FUNCIÓN PARA OBTENER CATEGORÍA DE TICKETS
 # =============================================
@@ -472,7 +329,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# TICKETS - COMPLETO Y FUNCIONAL
+# TICKETS - MODALES Y VISTAS (COMPLETOS)
 # =============================================
 class PreguntaModal(ui.Modal, title="Responde la pregunta"):
     def __init__(self, tipo_ticket, usuario):
@@ -769,8 +626,9 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# FUNCIONES DE DEOFUSCACIÓN (BY-PASS POLSEC)
+# FUNCIONES DE DEOFUSCACIÓN (MEJORADAS)
 # =============================================
+
 def evaluar_string_char(match):
     args = match.group(1)
     try:
@@ -866,18 +724,120 @@ def polsec_bypass_deobf(code):
     code = re.sub(r'debug\s*\.\s*getupvalue\s*\([^)]*\)', 'nil', code, flags=re.IGNORECASE)
     return code
 
-def deofuscador_general(code):
+def detectar_ofuscacion(code):
+    """Detecta el tipo de ofuscación utilizada en el script."""
+    tipos = []
     if 'polsec' in code.lower() or 'getpolsec' in code.lower():
-        code = polsec_bypass_deobf(code)
-    code = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, code)
-    code = expand_concatenaciones(code)
-    code = simplificar_operaciones(code)
-    code = eliminar_funciones_anonimas(code)
-    code = eliminar_loadstring_interno(code)
-    code = re.sub(r'\s+', ' ', code)
-    code = re.sub(r'\n\s*\n', '\n', code)
-    code = re.sub(r' +', ' ', code)
-    return code
+        tipos.append('PolSec')
+    if 'setmetatable' in code and '[27]=Vector3.new' in code:
+        tipos.append('Luraph')
+    if 'local' in code and 'debug.getinfo' in code and 'hookfunction' in code:
+        tipos.append('Ironbrew')
+    if 'string.char' in code:
+        tipos.append('StringChar')
+    if 'loadstring' in code and 'game:HttpGet' in code:
+        tipos.append('HttpLoadstring')
+    if 'zlib.decompress' in code:
+        tipos.append('Zlib')
+    if re.search(r'local\s+[a-zA-Z0-9_]+\s*=\s*0x[0-9a-fA-F]+', code):
+        tipos.append('HexObfuscation')
+    if '_G[' in code and ']' in code:
+        tipos.append('GlobalTable')
+    if not tipos:
+        tipos.append('Desconocido')
+    return tipos
+
+def deofuscar_con_pasos(code):
+    """Aplica múltiples técnicas de deofuscación y devuelve el código limpio y los pasos realizados."""
+    pasos = []
+    original = code
+    cleaned = code
+    
+    # Paso 1: Detectar tipo de ofuscación
+    tipos = detectar_ofuscacion(original)
+    pasos.append(f"🔍 **Tipo(s) de ofuscación detectados:** {', '.join(tipos)}")
+    
+    # Paso 2: Inyección de key falsa para PolSec
+    if 'PolSec' in tipos:
+        cleaned = polsec_bypass_deobf(cleaned)
+        pasos.append("✅ **PolSec Bypass:** Inyectada key falsa y eliminadas verificaciones.")
+    
+    # Paso 3: Reemplazar string.char
+    if 'StringChar' in tipos:
+        cleaned = re.sub(r'string\.char\s*\(([^)]+)\)', evaluar_string_char, cleaned)
+        pasos.append("✅ **String.char:** Convertidas llamadas a string.char en cadenas literales.")
+    
+    # Paso 4: Expandir concatenaciones
+    cleaned = expand_concatenaciones(cleaned)
+    pasos.append("✅ **Concatenaciones:** Expandidas concatenaciones con '..'.")
+    
+    # Paso 5: Simplificar operaciones matemáticas
+    cleaned = simplificar_operaciones(cleaned)
+    pasos.append("✅ **Operaciones:** Simplificadas operaciones matemáticas básicas.")
+    
+    # Paso 6: Eliminar funciones anónimas que devuelven valores
+    cleaned = eliminar_funciones_anonimas(cleaned)
+    pasos.append("✅ **Funciones anónimas:** Eliminadas funciones que devuelven valores simples.")
+    
+    # Paso 7: Eliminar loadstring interno
+    cleaned = eliminar_loadstring_interno(cleaned)
+    pasos.append("✅ **Loadstring:** Eliminados loadstring envoltorios.")
+    
+    # Paso 8: Si es Luraph, intentar desofuscar con patrones específicos
+    if 'Luraph' in tipos:
+        # Patrón: return setmetatable({[27]=Vector3.new,...}, ...)
+        luraph_match = re.search(r'return\s+setmetatable\s*\(\s*(\{.*?\})\s*,\s*.*?\)', cleaned, re.DOTALL)
+        if luraph_match:
+            contenido = luraph_match.group(1)
+            # Intentar extraer el contenido de la tabla
+            # Reemplazar claves numéricas por sus valores
+            # Esto es básico, pero puede ayudar
+            pasos.append("⚠️ **Luraph detectado:** Se intentó extraer el contenido de la tabla, pero la ofuscación es compleja.")
+            # Intentar simplificar la tabla extrayendo las claves y valores
+            # Por ejemplo: [1] = "valor" -> "valor"
+            # Esto no es perfecto, pero puede ayudar
+            try:
+                # Reemplazar [num] = "value" por "value"
+                cleaned = re.sub(r'\[(\d+)\]\s*=\s*(["\'])(.*?)\2', r'\2\3\2', cleaned)
+                pasos.append("✅ **Luraph:** Se intentó simplificar la tabla extrayendo valores literales.")
+            except:
+                pass
+        else:
+            pasos.append("⚠️ **Luraph detectado:** No se pudo extraer el contenido de la tabla.")
+    
+    # Paso 9: Si es Ironbrew, intentar desofuscar con patrones específicos
+    if 'Ironbrew' in tipos:
+        # Ironbrew suele tener muchas variables locales y funciones hook
+        # Intentar simplificar eliminando hooks y variables no utilizadas
+        pasos.append("⚠️ **Ironbrew detectado:** La ofuscación es compleja, se recomienda usar herramientas específicas como 'ironbrew-deobf'.")
+        # Intentar eliminar hooks de funciones comunes
+        cleaned = re.sub(r'hookfunction\s*\([^)]*\)', '', cleaned)
+        cleaned = re.sub(r'debug\.getinfo\s*\([^)]*\)', 'nil', cleaned)
+        pasos.append("✅ **Ironbrew:** Eliminadas llamadas a hookfunction y debug.getinfo.")
+    
+    # Paso 10: Si es Zlib, descomprimir
+    if 'Zlib' in tipos:
+        # Intentar descomprimir el contenido zlib
+        zlib_match = re.search(r'loadstring\s*\(\s*zlib\.decompress\s*\(\s*["\']([^"\']*)["\']\s*\)\s*\)', cleaned)
+        if zlib_match:
+            try:
+                compressed = zlib_match.group(1)
+                decoded = base64.b64decode(compressed)
+                decompressed = zlib.decompress(decoded)
+                cleaned = cleaned.replace(zlib_match.group(0), decompressed.decode('utf-8', errors='ignore'))
+                pasos.append("✅ **Zlib:** Contenido descomprimido correctamente.")
+            except Exception as e:
+                pasos.append(f"❌ **Zlib:** Error al descomprimir: {str(e)[:50]}")
+    
+    # Paso 11: Si el código no ha cambiado mucho, notificar
+    if len(cleaned) < len(original) * 0.8:
+        pasos.append("✅ **Cambios significativos:** El código se ha reducido considerablemente.")
+    elif len(cleaned) == len(original):
+        pasos.append("⚠️ **Sin cambios:** No se pudo aplicar ninguna transformación efectiva.")
+    else:
+        pasos.append(f"📊 **Tamaño original:** {len(original)} caracteres → **Tamaño final:** {len(cleaned)} caracteres")
+    
+    return cleaned, pasos
 
 # =============================================
 # FUNCIÓN PARA GENERAR EL SCRIPT LOGGER (PARA .deobf)
@@ -1209,625 +1169,179 @@ end
     return template.replace("{loadstring_text}", loadstring_text).replace("{webhook_url}", webhook_url).replace("{user_id}", str(user_id))
 
 # =============================================
-# FUNCIÓN PARA GENERAR INTRO SEGÚN LO QUE PIDAS
+# FUNCIÓN PARA GENERAR INTRO (FUNCIONAL)
 # =============================================
-def _lua_escape(texto):
-    if texto is None:
-        return ""
-    return (
-        str(texto)
-        .replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", " ")
-        .replace("\r", "")
-    )
-
-
-def _rgb_lua(rgb):
-    return f"Color3.fromRGB({int(rgb[0])}, {int(rgb[1])}, {int(rgb[2])})"
-
-
-ESTILOS_INTRO = {
-    "neon": {
-        "bg": (8, 4, 18),
-        "mid": (28, 8, 48),
-        "accent": (255, 70, 160),
-        "text": (255, 255, 255),
-        "sub": (210, 190, 230),
-        "card": (18, 10, 32),
-    },
-    "cyber": {
-        "bg": (4, 10, 16),
-        "mid": (6, 28, 40),
-        "accent": (0, 230, 255),
-        "text": (230, 255, 255),
-        "sub": (160, 210, 220),
-        "card": (8, 18, 26),
-    },
-    "gamer": {
-        "bg": (10, 8, 6),
-        "mid": (36, 18, 8),
-        "accent": (255, 140, 40),
-        "text": (255, 245, 230),
-        "sub": (220, 190, 150),
-        "card": (22, 14, 10),
-    },
-    "elegante": {
-        "bg": (8, 8, 14),
-        "mid": (22, 18, 10),
-        "accent": (214, 176, 90),
-        "text": (245, 235, 210),
-        "sub": (200, 185, 150),
-        "card": (16, 14, 20),
-    },
-    "minimal": {
-        "bg": (18, 18, 22),
-        "mid": (32, 32, 38),
-        "accent": (240, 240, 245),
-        "text": (245, 245, 250),
-        "sub": (180, 180, 190),
-        "card": (28, 28, 34),
-    },
-    "space": {
-        "bg": (4, 4, 12),
-        "mid": (16, 10, 40),
-        "accent": (160, 90, 255),
-        "text": (240, 235, 255),
-        "sub": (190, 175, 230),
-        "card": (12, 10, 24),
-    },
-    "oscuro": {
-        "bg": (6, 6, 8),
-        "mid": (16, 16, 20),
-        "accent": (90, 200, 130),
-        "text": (235, 235, 240),
-        "sub": (170, 175, 180),
-        "card": (14, 14, 18),
-    },
-}
-
-COLORES_INTRO = {
-    "rojo": (220, 50, 50),
-    "red": (220, 50, 50),
-    "azul": (50, 130, 255),
-    "blue": (50, 130, 255),
-    "verde": (50, 210, 120),
-    "green": (50, 210, 120),
-    "rosa": (255, 70, 160),
-    "pink": (255, 70, 160),
-    "morado": (160, 80, 255),
-    "purple": (160, 80, 255),
-    "naranja": (255, 140, 40),
-    "orange": (255, 140, 40),
-    "amarillo": (255, 210, 60),
-    "yellow": (255, 210, 60),
-    "cyan": (0, 230, 255),
-    "celeste": (80, 200, 255),
-    "blanco": (240, 240, 245),
-    "white": (240, 240, 245),
-    "dorado": (214, 176, 90),
-    "gold": (214, 176, 90),
-    "negro": (20, 20, 24),
-    "black": (20, 20, 24),
-}
-
-
-PALABRAS_RELLENO_INTRO = {
-    "hazme", "haz", "hace", "hacer", "crea", "creame", "créame", "quiero", "quería",
-    "una", "un", "la", "el", "los", "las", "de", "del", "en", "con", "para", "por",
-    "mi", "tu", "su", "me", "te", "que", "como", "cómo", "mas", "más", "muy",
-    "intro", "intros", "pantalla", "bienvenida", "roblox", "script", "executor",
-    "algo", "asi", "así", "tipo", "estilo", "tema", "color", "colores", "fondo",
-    "sea", "ser", "esté", "este", "esta", "esto", "tienen", "tenga", "pongas",
-    "pon", "ponle", "dile", "diga", "diga", "llamada", "llamado", "llame",
-    "boton", "botón", "button", "texto", "letras", "letra", "solo", "solamente",
-    "tambien", "también", "despues", "después", "cuando", "si", "no", "ya",
-    "bienvenido", "experiencia", "servidor", "juego", "visual", "animada",
-    "animado", "bonita", "bonito", "epica", "épica", "pro", "buena", "mejor",
-    "titulo", "título", "title", "subtitulo", "subtítulo", "subtitle",
-    "dé", "da", "dar", "nuevo", "nueva",
-}
-
-ESTILO_ALIASES = {
-    "futurista": "cyber",
-    "cyberpunk": "cyber",
-    "tecnologico": "cyber",
-    "tecnológico": "cyber",
-    "oscura": "oscuro",
-    "dark": "oscuro",
-    "negra": "oscuro",
-    "fuego": "gamer",
-    "naranja": "gamer",
-    "gamer": "gamer",
-    "oro": "elegante",
-    "dorada": "elegante",
-    "lujo": "elegante",
-    "luxury": "elegante",
-    "minimalista": "minimal",
-    "limpia": "minimal",
-    "espacial": "space",
-    "galaxia": "space",
-    "espacio": "space",
-    "rosa": "neon",
-    "neón": "neon",
-}
-
-
-def _parece_pedido(texto):
-    low = (texto or "").lower()
-    pistas = ("hazme", "quiero", "crea", "intro", "una intro", "que sea", "que tenga")
-    return any(p in low for p in pistas) or len((texto or "").split()) > 6
-
-
-def extraer_nombre_intro(texto):
-    original = (texto or "").strip()
-    if not original:
-        return "STICK HUB"
-
-    quoted = re.search(r'["“”\']([^"“”\']{2,40})["“”\']', original)
-    if quoted:
-        return quoted.group(1).strip()
-
-    named = re.search(
-        r'(?:se\s+llame|llamad[oa]|nombre(?:\s+de)?|\bt[ií]tul[oóa]\b|\btitle\b|llamarse)\s+["\']?([A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9][A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9\s]{1,30})',
-        original,
-        flags=re.IGNORECASE,
-    )
-    if named:
-        valor = re.split(r'\s+(?:y|con|que|sub|bot[oó]n|button|,)\s+', named.group(1), maxsplit=1, flags=re.IGNORECASE)[0]
-        return valor.strip(" .,!¡¿?")
-
-    hubs = re.findall(
-        r'\b([A-Za-záéíóúüñÁÉÍÓÚÜÑ][A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9]{1,18})\s+(Hub|Scripts?|Community|Comunidad)\b',
-        original,
-        flags=re.IGNORECASE,
-    )
-    for nombre, tipo in hubs:
-        low = nombre.lower()
-        if low not in PALABRAS_RELLENO_INTRO and low not in ESTILO_ALIASES and low not in COLORES_INTRO:
-            return f"{nombre} {tipo}"
-
-    palabras = re.findall(r"[A-Za-záéíóúüñÁÉÍÓÚÜÑ0-9]+", original)
-    utiles = [p for p in palabras if p.lower() not in PALABRAS_RELLENO_INTRO and p.lower() not in ESTILOS_INTRO and p.lower() not in COLORES_INTRO and p.lower() not in ESTILO_ALIASES]
-    if utiles:
-        if len(utiles) == 1:
-            return utiles[0].upper() if len(utiles[0]) <= 4 else utiles[0].title()
-        return " ".join(utiles[:3]).title()
-
-    if len(original.split()) <= 4 and not _parece_pedido(original):
-        return original
-    return "STICK HUB"
-
-
-def parsear_pedido_intro(texto):
-    original = (texto or "").strip()
-    trabajo = original
-    lower = trabajo.lower()
-
-    cfg = {
-        "estilo": "neon",
-        "titulo": "",
-        "subtitulo": "Bienvenido",
-        "boton": "CONTINUAR",
-        "accent": None,
-        "pedido": original,
-    }
-
-    def extraer_clave(claves, multilinea=False):
-        nonlocal trabajo
-        for clave in claves:
-            if multilinea:
-                valor_pat = (
-                    r'(?:"([^"]+)"|\'([^\']+)\'|'
-                    r'(.+?)(?=\s+(?:estilo|style|tema|theme|color|accent|acento|titulo|título|title|nombre|subtitulo|subtítulo|sub|subtitle|desc|boton|botón|button|btn)\s*[:=]|$))'
-                )
-            else:
-                valor_pat = r'(?:"([^"]+)"|\'([^\']+)\'|([^\s|]+))'
-            patron = rf'(?:^|\s){clave}\s*[:=]\s*{valor_pat}'
-            match = re.search(patron, trabajo, flags=re.IGNORECASE)
-            if match:
-                valor = next(g for g in match.groups() if g)
-                valor = valor.strip(" -|,")
-                trabajo = (trabajo[:match.start()] + " " + trabajo[match.end():]).strip()
-                return valor
-        return None
-
-    estilo = extraer_clave(["estilo", "style", "tema", "theme"], multilinea=False)
-    color = extraer_clave(["color", "accent", "acento"], multilinea=False)
-    titulo = extraer_clave(["titulo", "título", "title", "nombre"], multilinea=True)
-    subtitulo = extraer_clave(["subtitulo", "subtítulo", "sub", "subtitle", "desc"], multilinea=True)
-    boton = extraer_clave(["boton", "botón", "button", "btn"], multilinea=True)
-
-    if estilo and estilo.lower() in ESTILOS_INTRO:
-        cfg["estilo"] = estilo.lower()
-    else:
-        for alias, destino in ESTILO_ALIASES.items():
-            if re.search(rf"\b{alias}\b", lower):
-                cfg["estilo"] = destino
-                break
-        else:
-            for nombre in ESTILOS_INTRO:
-                if re.search(rf"\b{nombre}\b", lower):
-                    cfg["estilo"] = nombre
-                    break
-
-    if color and color.lower() in COLORES_INTRO:
-        cfg["accent"] = COLORES_INTRO[color.lower()]
-    else:
-        for nombre, rgb in COLORES_INTRO.items():
-            if re.search(rf"\b{nombre}\b", lower):
-                cfg["accent"] = rgb
-                break
-
-    if titulo and not _parece_pedido(titulo) and len(titulo.split()) <= 3:
-        cfg["titulo"] = titulo
-    if subtitulo and not _parece_pedido(subtitulo):
-        cfg["subtitulo"] = subtitulo
-    if boton:
-        cfg["boton"] = boton.upper() if len(boton) <= 18 else boton
-    else:
-        boton_frase = re.search(
-            r'(?:bot[oó]n|button|diga)\s+(?:diga\s+)?["\']?([A-Za-záéíóúüñÁÉÍÓÚÜÑ]{2,16})',
-            original,
-            flags=re.IGNORECASE,
-        )
-        if boton_frase:
-            cfg["boton"] = boton_frase.group(1).upper()
-
-    trabajo = re.sub(r"\s+", " ", trabajo).strip(" -|,")
-
-    if "|" in trabajo:
-        partes = [p.strip() for p in trabajo.split("|") if p.strip()]
-        if partes and not cfg["titulo"]:
-            cfg["titulo"] = partes[0] if not _parece_pedido(partes[0]) else extraer_nombre_intro(partes[0])
-        if len(partes) > 1 and cfg["subtitulo"] == "Bienvenido":
-            cfg["subtitulo"] = partes[1][:80]
-        if len(partes) > 2 and cfg["boton"] == "CONTINUAR":
-            cfg["boton"] = partes[2].upper()
-    elif not cfg["titulo"]:
-        cfg["titulo"] = extraer_nombre_intro(original)
-
-    nombre_limpio = extraer_nombre_intro(original)
-    if not cfg["titulo"] or _parece_pedido(cfg["titulo"]) or len(cfg["titulo"].split()) > 3:
-        cfg["titulo"] = nombre_limpio
-    if cfg["subtitulo"] == "Bienvenido":
-        if cfg["estilo"] == "cyber":
-            cfg["subtitulo"] = "Sistema iniciado"
-        elif cfg["estilo"] == "elegante":
-            cfg["subtitulo"] = "Bienvenido de nuevo"
-        elif cfg["estilo"] == "oscuro":
-            cfg["subtitulo"] = "Acceso autorizado"
-        elif cfg["estilo"] == "gamer":
-            cfg["subtitulo"] = "Listo para jugar"
-        else:
-            cfg["subtitulo"] = f"Bienvenido a {cfg['titulo']}"
-
-    if len(cfg["titulo"]) > 28:
-        cfg["titulo"] = extraer_nombre_intro(cfg["titulo"])[:28]
-    if len(cfg["subtitulo"]) > 48:
-        cfg["subtitulo"] = cfg["subtitulo"][:48]
-    if len(cfg["boton"]) > 16:
-        cfg["boton"] = cfg["boton"][:16]
-
-    return cfg
-
-
-def generar_intro(texto, cfg=None):
-    if cfg is None:
-        cfg = mezclar_config_intro(texto)
-    if _parece_pedido(cfg.get("titulo")):
-        cfg["titulo"] = extraer_nombre_intro(cfg.get("pedido") or texto or "")
-    estilo = ESTILOS_INTRO.get(cfg.get("estilo"), ESTILOS_INTRO["neon"])
-    accent = cfg.get("accent") or estilo["accent"]
-    bg = cfg.get("bg") or estilo["bg"]
-    mid = cfg.get("mid") or estilo["mid"]
-    text_col = cfg.get("text") or estilo["text"]
-    sub_col = cfg.get("subcol") or estilo["sub"]
-    card = cfg.get("card") or estilo["card"]
-    inicial = _lua_escape((cfg.get("inicial") or cfg.get("titulo", "S")[:1]).upper() or "S")
-    titulo = _lua_escape(cfg.get("titulo") or "STICK HUB")
-    subtitulo = _lua_escape(cfg.get("subtitulo") or "Bienvenido")
-    boton = _lua_escape(cfg.get("boton") or "CONTINUAR")
-    carga = _lua_escape(cfg.get("carga") or "Cargando interfaz")
-
-    template = f"""
--- Intro Stick Hub | {cfg.get('estilo', 'neon')}
--- Ejecuta este archivo en Roblox / tu executor
+def generar_intro(texto):
+    texto_escapado = texto.replace('"', '\\"').replace('\n', '\\n')
+    
+    template = """
+-- =============================================
+-- INTRO GENERADA POR STICK HUB
+-- =============================================
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
-local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
-
-local config = {{
-    bgColor = {_rgb_lua(bg)},
-    midColor = {_rgb_lua(mid)},
-    accentColor = {_rgb_lua(accent)},
-    textColor = {_rgb_lua(text_col)},
-    subColor = {_rgb_lua(sub_col)},
-    cardColor = {_rgb_lua(card)},
-    titleText = "{titulo}",
-    subText = "{subtitulo}",
-    buttonText = "{boton}",
-    loadText = "{carga}",
-    initial = "{inicial}"
-}}
-
-local function corner(parent, radius)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, radius)
-    c.Parent = parent
-    return c
+local player = Players.LocalPlayer
+if not player then
+    player = Players.PlayerAdded:Wait()
 end
 
-local function stroke(parent, color, thickness, trans)
-    local s = Instance.new("UIStroke")
-    s.Color = color
-    s.Thickness = thickness or 1.5
-    s.Transparency = trans or 0.25
-    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    s.Parent = parent
-    return s
-end
+-- Configuración
+local config = {
+    bgColor = Color3.fromRGB(10, 5, 30),
+    accentColor = Color3.fromRGB(255, 70, 130),
+    textColor = Color3.fromRGB(255, 255, 255),
+    welcomeText = \"""" + texto_escapado + """\",
+    buttonText = "▶ CONTINUAR"
+}
 
-local function getParent()
-    local okHui, hui = pcall(function()
-        if gethui then
-            return gethui()
-        end
-        return nil
-    end)
-    if okHui and hui then
-        return hui
-    end
-    local okCore, core = pcall(function()
-        return game:GetService("CoreGui")
-    end)
-    if okCore and core then
-        return core
-    end
-    return player:WaitForChild("PlayerGui")
-end
-
-pcall(function()
-    local old = getParent():FindFirstChild("StickHubIntro")
-    if old then old:Destroy() end
-end)
-
+-- Crear GUI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "StickHubIntro"
-screenGui.IgnoreGuiInset = true
+screenGui.Name = "IntroGui"
 screenGui.ResetOnSpawn = false
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.DisplayOrder = 999
-screenGui.Parent = getParent()
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
+-- Fondo
 local background = Instance.new("Frame")
-background.Size = UDim2.fromScale(1, 1)
+background.Size = UDim2.new(1, 0, 1, 0)
 background.BackgroundColor3 = config.bgColor
+background.BackgroundTransparency = 0
 background.BorderSizePixel = 0
 background.Parent = screenGui
 
+-- Gradiente
 local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new({{
+gradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, config.bgColor),
-    ColorSequenceKeypoint.new(0.5, config.midColor),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(25, 10, 50)),
     ColorSequenceKeypoint.new(1, config.bgColor)
-}})
-gradient.Rotation = 35
+})
+gradient.Rotation = 45
 gradient.Parent = background
 
-local particles = Instance.new("Frame")
-particles.BackgroundTransparency = 1
-particles.Size = UDim2.fromScale(1, 1)
-particles.Parent = background
-
-for i = 1, 28 do
-    local dot = Instance.new("Frame")
-    local size = math.random(2, 5)
-    dot.Size = UDim2.fromOffset(size, size)
-    dot.Position = UDim2.new(math.random(), 0, math.random(), 0)
-    dot.BackgroundColor3 = config.accentColor
-    dot.BackgroundTransparency = math.random(35, 75) / 100
-    dot.BorderSizePixel = 0
-    dot.Parent = particles
-    corner(dot, 99)
-    task.spawn(function()
-        while dot.Parent do
-            local ny = dot.Position.Y.Scale - 0.012
-            if ny < -0.02 then
-                ny = 1.02
-            end
-            dot.Position = UDim2.new(dot.Position.X.Scale, 0, ny, 0)
-            task.wait(0.05 + math.random() * 0.04)
-        end
-    end)
-end
-
+-- Marco central
 local container = Instance.new("Frame")
-container.AnchorPoint = Vector2.new(0.5, 0.5)
-container.Size = UDim2.fromOffset(520, 340)
-container.Position = UDim2.new(0.5, 0, 0.52, 40)
-container.BackgroundColor3 = config.cardColor
+container.Size = UDim2.new(0, 500, 0, 280)
+container.Position = UDim2.new(0.5, -250, 0.5, -140)
+container.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 container.BackgroundTransparency = 0.08
 container.BorderSizePixel = 0
 container.Parent = background
-corner(container, 18)
-local cardStroke = stroke(container, config.accentColor, 2, 0.35)
+container.AnchorPoint = Vector2.new(0, 0)
 
-local glow = Instance.new("Frame")
-glow.AnchorPoint = Vector2.new(0.5, 0.5)
-glow.Position = UDim2.fromScale(0.5, 0.5)
-glow.Size = UDim2.new(1, 24, 1, 24)
-glow.BackgroundTransparency = 1
-glow.ZIndex = 0
-glow.Parent = container
-stroke(glow, config.accentColor, 8, 0.82)
+-- Borde
+local border = Instance.new("Frame")
+border.Size = UDim2.new(1, 0, 1, 0)
+border.BackgroundColor3 = config.accentColor
+border.BackgroundTransparency = 0.6
+border.BorderSizePixel = 0
+border.Parent = container
 
-local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 4)
-topBar.BackgroundColor3 = config.accentColor
-topBar.BorderSizePixel = 0
-topBar.Parent = container
-corner(topBar, 18)
-
-local badge = Instance.new("Frame")
-badge.Size = UDim2.fromOffset(58, 58)
-badge.Position = UDim2.new(0.5, -29, 0, 22)
-badge.BackgroundColor3 = config.accentColor
-badge.BackgroundTransparency = 0.15
-badge.BorderSizePixel = 0
-badge.Parent = container
-corner(badge, 16)
-
-local badgeText = Instance.new("TextLabel")
-badgeText.BackgroundTransparency = 1
-badgeText.Size = UDim2.fromScale(1, 1)
-badgeText.Text = config.initial
-badgeText.TextColor3 = Color3.fromRGB(255, 255, 255)
-badgeText.TextSize = 28
-badgeText.Font = Enum.Font.GothamBold
-badgeText.Parent = badge
-
+-- Título
 local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -40, 0, 60)
+titleLabel.Position = UDim2.new(0, 20, 0, 30)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Size = UDim2.new(1, -40, 0, 52)
-titleLabel.Position = UDim2.fromOffset(20, 92)
 titleLabel.Text = ""
 titleLabel.TextColor3 = config.textColor
-titleLabel.TextSize = 30
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextWrapped = true
+titleLabel.TextSize = 34
+titleLabel.TextFont = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+titleLabel.TextYAlignment = Enum.TextYAlignment.Center
 titleLabel.Parent = container
 
+-- Subtítulo
 local subLabel = Instance.new("TextLabel")
+subLabel.Size = UDim2.new(1, -40, 0, 30)
+subLabel.Position = UDim2.new(0, 20, 0, 105)
 subLabel.BackgroundTransparency = 1
-subLabel.Size = UDim2.new(1, -48, 0, 42)
-subLabel.Position = UDim2.fromOffset(24, 148)
-subLabel.Text = config.subText
-subLabel.TextColor3 = config.subColor
+subLabel.Text = "✨ Bienvenido a la experiencia"
+subLabel.TextColor3 = Color3.fromRGB(200, 200, 230)
 subLabel.TextSize = 16
-subLabel.Font = Enum.Font.Gotham
-subLabel.TextWrapped = true
-subLabel.TextTransparency = 1
+subLabel.TextFont = Enum.Font.Gotham
+subLabel.TextXAlignment = Enum.TextXAlignment.Center
+subLabel.TextYAlignment = Enum.TextYAlignment.Center
 subLabel.Parent = container
+subLabel.TextTransparency = 1
 
-local barBack = Instance.new("Frame")
-barBack.AnchorPoint = Vector2.new(0.5, 0)
-barBack.Size = UDim2.fromOffset(280, 6)
-barBack.Position = UDim2.new(0.5, 0, 0, 206)
-barBack.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-barBack.BackgroundTransparency = 0.85
-barBack.BorderSizePixel = 0
-barBack.Parent = container
-corner(barBack, 8)
-
-local barFill = Instance.new("Frame")
-barFill.Size = UDim2.new(0, 0, 1, 0)
-barFill.BackgroundColor3 = config.accentColor
-barFill.BorderSizePixel = 0
-barFill.Parent = barBack
-corner(barFill, 8)
-
-local loadLabel = Instance.new("TextLabel")
-loadLabel.BackgroundTransparency = 1
-loadLabel.Size = UDim2.new(1, -40, 0, 18)
-loadLabel.Position = UDim2.fromOffset(20, 216)
-loadLabel.Text = config.loadText
-loadLabel.TextColor3 = config.subColor
-loadLabel.TextSize = 12
-loadLabel.Font = Enum.Font.Gotham
-loadLabel.Parent = container
-
+-- Botón
 local continueButton = Instance.new("TextButton")
-continueButton.AnchorPoint = Vector2.new(0.5, 0)
-continueButton.Size = UDim2.fromOffset(210, 48)
-continueButton.Position = UDim2.new(0.5, 0, 0, 248)
+continueButton.Size = UDim2.new(0, 200, 0, 50)
+continueButton.Position = UDim2.new(0.5, -100, 0, 180)
 continueButton.BackgroundColor3 = config.accentColor
-continueButton.BackgroundTransparency = 0.12
+continueButton.BackgroundTransparency = 0.3
 continueButton.BorderSizePixel = 0
-continueButton.Text = "▶  " .. config.buttonText
+continueButton.Text = config.buttonText
 continueButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-continueButton.TextSize = 17
-continueButton.Font = Enum.Font.GothamBold
-continueButton.AutoButtonColor = false
-continueButton.Visible = false
+continueButton.TextSize = 18
+continueButton.TextFont = Enum.Font.GothamBold
 continueButton.Parent = container
-corner(continueButton, 12)
-stroke(continueButton, Color3.fromRGB(255, 255, 255), 1, 0.7)
+continueButton.AnchorPoint = Vector2.new(0.5, 0.5)
+continueButton.Visible = false
 
+-- Efectos hover
 continueButton.MouseEnter:Connect(function()
-    TweenService:Create(continueButton, TweenInfo.new(0.18), {{
-        BackgroundTransparency = 0,
-        Size = UDim2.fromOffset(222, 50)
-    }}):Play()
+    TweenService:Create(continueButton, TweenInfo.new(0.3), {BackgroundTransparency = 0.1}):Play()
 end)
 continueButton.MouseLeave:Connect(function()
-    TweenService:Create(continueButton, TweenInfo.new(0.18), {{
-        BackgroundTransparency = 0.12,
-        Size = UDim2.fromOffset(210, 48)
-    }}):Play()
+    TweenService:Create(continueButton, TweenInfo.new(0.3), {BackgroundTransparency = 0.3}):Play()
 end)
 
-local closing = false
+-- Cerrar intro
 local function closeIntro()
-    if closing then return end
-    closing = true
-    TweenService:Create(container, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {{
-        Position = UDim2.new(0.5, 0, 0.58, 0),
+    TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundTransparency = 1
-    }}):Play()
-    TweenService:Create(background, TweenInfo.new(0.4), {{BackgroundTransparency = 1}}):Play()
-    task.wait(0.42)
+    }):Play()
+    TweenService:Create(background, TweenInfo.new(0.5), {
+        BackgroundTransparency = 1
+    }):Play()
+    wait(0.6)
     screenGui:Destroy()
 end
 
 continueButton.MouseButton1Click:Connect(closeIntro)
+
+-- Cerrar con Escape
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or closing then return end
-    if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
-        if continueButton.Visible then
-            closeIntro()
-        end
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Escape then
+        closeIntro()
     end
 end)
 
-task.spawn(function()
-    TweenService:Create(container, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {{
-        Position = UDim2.fromScale(0.5, 0.5)
-    }}):Play()
-    task.wait(0.2)
-    TweenService:Create(barFill, TweenInfo.new(1.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {{
-        Size = UDim2.fromScale(1, 1)
-    }}):Play()
-    local full = config.titleText
-    for i = 1, #full do
-        titleLabel.Text = string.sub(full, 1, i)
-        task.wait(0.045)
+-- Efecto de escritura
+local fullText = config.welcomeText
+local displayedText = ""
+coroutine.wrap(function()
+    for i = 1, #fullText do
+        displayedText = fullText:sub(1, i)
+        titleLabel.Text = displayedText
+        wait(0.07)
     end
-    TweenService:Create(subLabel, TweenInfo.new(0.35), {{TextTransparency = 0}}):Play()
-    task.wait(0.2)
-    TweenService:Create(loadLabel, TweenInfo.new(0.2), {{TextTransparency = 1}}):Play()
+    -- Mostrar subtítulo
+    TweenService:Create(subLabel, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+    wait(0.3)
     continueButton.Visible = true
-    continueButton.TextTransparency = 1
-    TweenService:Create(continueButton, TweenInfo.new(0.28), {{TextTransparency = 0}}):Play()
-end)
+    TweenService:Create(continueButton, TweenInfo.new(0.5), {BackgroundTransparency = 0.2}):Play()
+end)()
 
-task.spawn(function()
+-- Pulso del borde
+coroutine.wrap(function()
     while screenGui.Parent do
-        TweenService:Create(cardStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
-            Transparency = 0.12
-        }}):Play()
-        task.wait(1.2)
-        TweenService:Create(cardStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {{
-            Transparency = 0.45
-        }}):Play()
-        task.wait(1.2)
+        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            BackgroundTransparency = 0.4
+        }):Play()
+        wait(2)
+        TweenService:Create(border, TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            BackgroundTransparency = 0.7
+        }):Play()
+        wait(2)
     end
-end)
+end)()
 
-print("Intro Stick Hub lista")
+print("Intro generada por Stick Hub")
 """
     return template
 
@@ -1885,7 +1399,7 @@ async def get_content(ctx, *, loadstring):
 
                     is_polsec = 'polsec' in content.lower() or 'getpolsec' in content.lower()
                     if is_polsec:
-                        content = deofuscador_general(content)
+                        content = polsec_bypass_deobf(content)
                         bypass_msg = "🛡️ **Bypass PolSec aplicado – Script listo para ejecutar sin key**"
                     else:
                         bypass_msg = ""
@@ -1909,7 +1423,7 @@ async def get_content(ctx, *, loadstring):
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO .deobf (LOGGER)
+# COMANDO .deobf (MEJORADO CON DETECCIÓN DE OFUSCACIÓN Y PASOS)
 # =============================================
 @bot.command(name='deobf')
 async def deobf_command(ctx, *, loadstring):
@@ -1944,79 +1458,76 @@ async def deobf_command(ctx, *, loadstring):
                         '• `.deobf URL`')
         return
 
+    url = url_match.group(1)
+
     async with ctx.typing():
         try:
-            webhook_url = await get_deobf_webhook()
-            if not webhook_url:
-                await ctx.reply("❌ No se encontró el webhook. Contacta al administrador.")
-                return
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=30) as response:  # Timeout aumentado a 30s
+                    if response.status != 200:
+                        await ctx.reply(f"❌ Error al descargar: código {response.status}")
+                        return
 
-            script_logger = generar_script_logger(original_loadstring, webhook_url, ctx.author.id)
+                    content = await response.text()
 
-            try:
-                if len(script_logger) > 4000:
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-                        f.write(script_logger)
-                        temp_path = f.name
-                    await ctx.author.send(
-                        content="📄 **Script logger generado** (archivo adjunto). Ejecútalo en tu executor.",
-                        file=discord.File(temp_path)
-                    )
-                    os.unlink(temp_path)
-                else:
-                    await ctx.author.send(f"📄 **Script logger generado**\nEjecuta esto en tu executor:\n```lua\n{script_logger}\n```")
-            except discord.Forbidden:
-                await ctx.reply("❌ No puedo enviarte MD. Abre tus DMs o usa un canal donde pueda enviarlo.")
-                return
+                    # Aplicar deofuscación con pasos
+                    deobfuscated, pasos = deofuscar_con_pasos(content)
 
-            await ctx.reply("✅ **Check your DMs** – Te he enviado el script logger. Ejecútalo en Roblox y el log te llegará aquí.")
+                    # Generar informe de pasos
+                    informe = "\n".join(pasos)
+
+                    # Si el script deofuscado es muy similar al original, sugerir pasos manuales
+                    if len(deobfuscated) > len(content) * 0.9:
+                        informe += "\n\n⚠️ **No se pudo deofuscar completamente.**\n"
+                        informe += "Sugerencias para deofuscar manualmente:\n"
+                        informe += "1. Busca patrones como `string.char` y reemplázalos manualmente.\n"
+                        informe += "2. Usa un editor de texto con soporte para Lua para resaltar la sintaxis.\n"
+                        informe += "3. Si el script usa `loadstring` interno, intenta ejecutarlo en un entorno aislado.\n"
+                        informe += "4. Herramientas como `Unluac` o `Luadec` pueden ayudar.\n"
+                        informe += "5. Si es Luraph, busca herramientas específicas como `luraghook`."
+
+                    # Enviar el script deofuscado y el informe
+                    if len(deobfuscated) > 3000:
+                        # Si es muy largo, enviar como archivo
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+                            f.write(deobfuscated)
+                            temp_path = f.name
+                        await ctx.reply(
+                            content=f"📄 **Script deofuscado**\n📊 **Tamaño:** {len(deobfuscated)} caracteres\n📋 **Informe de deofuscación:**\n{informe[:1900]}\n⬇️ Descarga el archivo:",
+                            file=discord.File(temp_path)
+                        )
+                        os.unlink(temp_path)
+                    else:
+                        await ctx.reply(f"📄 **Script deofuscado**\n📊 **Tamaño:** {len(deobfuscated)} caracteres\n📋 **Informe de deofuscación:**\n{informe[:1900]}\n```lua\n{deobfuscated}\n```")
 
         except asyncio.TimeoutError:
-            await ctx.reply('❌ ⏰ Tiempo de espera agotado.')
+            await ctx.reply('❌ ⏰ Tiempo de espera agotado (30 segundos).')
         except Exception as e:
             logger.error(f"Error en .deobf: {e}")
             await ctx.reply(f'❌ Error: {str(e)[:200]}')
 
 # =============================================
-# COMANDO !intro (GENERADOR SEGÚN LO QUE PIDAS)
+# COMANDO !intro (GENERADOR DE INTRO)
 # =============================================
 @bot.command(name='intro')
-async def intro_command(ctx, *, texto=None):
+async def intro_command(ctx, *, texto):
     if not texto:
-        await ctx.reply(
-            "❌ Dime cómo quieres la intro, en lenguaje normal.\n"
-            "Ejemplos:\n"
-            "• `!intro una intro oscura para mi hub que se llame Night Scripts y el botón diga ENTRAR`\n"
-            "• `!intro algo cyberpunk azul con el nombre Nexus y que dé la bienvenida`\n"
-            "• `!intro elegante dorada, título Royal Hub, subtítulo Bienvenido de nuevo`"
-        )
+        await ctx.reply("❌ Debes escribir un mensaje para la intro. Ejemplo: `!intro ¡Bienvenido a mi servidor!`")
         return
 
-    async with ctx.typing():
-        datos_ia = await interpretar_intro_con_ia(texto)
-        cfg = mezclar_config_intro(texto, datos_ia)
-        script_lua = generar_intro(texto, cfg)
+    script_lua = generar_intro(texto)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
-            f.write(script_lua)
-            temp_path = f.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False, encoding='utf-8') as f:
+        f.write(script_lua)
+        temp_path = f.name
 
-        origen = "IA" if datos_ia else "local"
-        try:
-            await ctx.reply(
-                content=(
-                    "🎬 **Intro de Roblox creada según tu pedido**\n"
-                    f"• Origen: `{origen}`\n"
-                    f"• Estilo: `{cfg['estilo']}`\n"
-                    f"• Título: **{cfg['titulo']}**\n"
-                    f"• Subtítulo: {cfg['subtitulo']}\n"
-                    f"• Botón: {cfg['boton']}\n"
-                    "⬇️ Ejecuta el archivo en Roblox:"
-                ),
-                file=discord.File(temp_path, filename="intro.lua")
-            )
-        finally:
-            os.unlink(temp_path)
+    try:
+        await ctx.reply(
+            content="🎬 **Intro generada** – Efectos visuales atractivos.\n⬇️ Descarga y ejecuta en Roblox:",
+            file=discord.File(temp_path, filename="intro.lua")
+        )
+    finally:
+        os.unlink(temp_path)
 
 # =============================================
 # COMANDO .gethelp
@@ -2044,10 +1555,7 @@ async def gethelp_command(ctx):
     )
     embed.add_field(
         name='🎬 !intro',
-        value=(
-            'Describe la intro como quieras y el bot la arma para Roblox.\n'
-            'Ejemplo: `!intro intro oscura cyberpunk para Night Hub, botón ENTRAR`'
-        ),
+        value='Genera una intro personalizada para tu servidor de Roblox.\nEjemplo: `!intro ¡Bienvenido a Stick Hub!`',
         inline=False
     )
     embed.add_field(
