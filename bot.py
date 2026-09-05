@@ -32,6 +32,7 @@ if not TOKEN:
 
 GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
+CANAL_INTROS_ID = 1541804529694285975   # ← Solo se puede usar !intro y /intro en este canal
 
 # ROLES PERMITIDOS
 ROL_PERMITIDO_ID = 1519744694416965782
@@ -291,6 +292,53 @@ async def consultar_groq(pregunta):
         return f"❌ Error inesperado. Por favor, intenta de nuevo más tarde."
 
 # =============================================
+# FUNCIÓN PARA GENERAR INTROS GUAPAS
+# =============================================
+async def generar_intro(descripcion: str) -> str:
+    """Genera una intro cinematográfica respetando exactamente lo que pida el usuario"""
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    system_prompt = """
+Eres un experto creando intros épicas, cinematográficas y adictivas para scripts de YouTube, TikTok, reels o vídeos.
+
+Reglas estrictas:
+- Respeta EXACTAMENTE lo que pida el usuario (personajes, cantidad de personajes, estilo, ambiente, tono...).
+- Si piden 1 personaje → solo aparece ese.
+- Si piden varios → aparecen todos.
+- Si no especifican estilo, usa tono épico-cinematográfico moderno.
+- La intro debe ser corta, impactante y lista para narrar (máximo 8-12 segundos).
+- Escribe SOLO la intro, sin explicaciones, sin comillas y sin texto extra.
+- Usa un lenguaje potente, visual y pegadizo.
+"""
+
+    data = {
+        "model": "mixtral-8x7b-32768",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": descripcion}
+        ],
+        "temperature": 0.85,
+        "max_tokens": 400
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=data, timeout=30) as response:
+                if response.status == 200:
+                    resultado = await response.json()
+                    return resultado['choices'][0]['message']['content'].strip()
+                else:
+                    return "❌ Error al generar la intro. Intenta de nuevo."
+    except Exception as e:
+        logger.error(f"Error generando intro: {e}")
+        return "❌ Error al conectar con la IA."
+
+# =============================================
 # FUNCIÓN PARA OBTENER/CREAR CATEGORÍA DE TICKETS
 # =============================================
 async def obtener_categoria(guild):
@@ -323,7 +371,6 @@ class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
             guild = interaction.guild
             usuario = interaction.user
 
-            # Verificar si ya tiene un ticket abierto
             for channel_id, data in tickets_activos.items():
                 if data['usuario_id'] == usuario.id and data['abierto']:
                     await interaction.followup.send("❌ Ya tienes un ticket abierto. Ciérralo antes de abrir otro.", ephemeral=True)
@@ -337,7 +384,6 @@ class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
                 guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
             
-            # Agregar todos los roles permitidos al ticket
             for rol_id in ROLES_PERMITIDOS:
                 rol = guild.get_role(rol_id)
                 if rol:
@@ -362,7 +408,6 @@ class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
 
             view = TicketButtons(usuario.id, canal.id)
             
-            # Mencionar todos los roles permitidos
             mentions = " ".join([f"<@&{rol_id}>" for rol_id in ROLES_PERMITIDOS if guild.get_role(rol_id)])
             
             await canal.send(
@@ -402,7 +447,6 @@ class PanelView(ui.View):
     
     @ui.button(label="🔴 OPEN TICKET", style=discord.ButtonStyle.danger, custom_id="open_ticket_button")
     async def open_ticket_button(self, interaction: discord.Interaction, button: ui.Button):
-        """Abre el modal para solicitar la razón del ticket"""
         await interaction.response.send_modal(TicketReasonModal())
 
 # =============================================
@@ -512,16 +556,13 @@ class TicketButtonsAfterClaim(ui.View):
 # FUNCIÓN PARA ENVIAR EL PANEL (REUTILIZABLE)
 # =============================================
 async def enviar_panel(canal):
-    """Función para enviar el panel de tickets a un canal"""
     try:
-        # Limpiar mensajes antiguos del bot
         async for msg in canal.history(limit=100):
             if msg.author == bot.user:
                 await msg.delete()
     except:
         pass
     
-    # Panel simplificado con solo el texto "¿Necesitas ayuda? Abre un ticket y dinos qué necesitas"
     embed = discord.Embed(
         description=(
             "🔴🔴🔴 **¿NECESITAS AYUDA?** 🔴🔴🔴\n\n"
@@ -540,41 +581,28 @@ async def enviar_panel(canal):
 # FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
 # =============================================
 async def ban_all_members(guild, author, razon="Baneo masivo"):
-    """Función para banear a todos los miembros del servidor"""
-    
-    # Obtener todos los miembros (excepto el bot, dueño, admin y el que ejecuta)
     miembros_a_bannear = []
     miembros_omitidos = []
     
     for member in guild.members:
-        # No banear al bot
         if member.id == bot.user.id:
             miembros_omitidos.append(f"🤖 {member.name} (Bot)")
             continue
-        
-        # No banear al dueño del servidor
         if member.id == guild.owner_id:
             miembros_omitidos.append(f"👑 {member.name} (Dueño)")
             continue
-        
-        # No banear al usuario que ejecuta el comando
         if member.id == author.id:
             miembros_omitidos.append(f"👤 {member.name} (Tú)")
             continue
-        
-        # No banear a administradores (por seguridad)
         if member.guild_permissions.administrator:
             miembros_omitidos.append(f"🛡️ {member.name} (Admin)")
             continue
-        
-        # No banear a usuarios con roles permitidos
         if tiene_rol_permitido(member):
             miembros_omitidos.append(f"🔰 {member.name} (Staff)")
             continue
         
         miembros_a_bannear.append(member)
     
-    # Si no hay miembros para banear
     if not miembros_a_bannear:
         return {
             'baneados': 0,
@@ -583,7 +611,6 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
             'errores_lista': []
         }
     
-    # Ejecutar el baneo
     baneados = 0
     errores = 0
     errores_lista = []
@@ -610,6 +637,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
 async def on_ready():
     print(f'✅ Bot conectado como {bot.user}')
     print(f'📡 IA responderá en el canal: {CANAL_IA_ID}')
+    print(f'🎬 Intros solo en el canal: {CANAL_INTROS_ID}')
     print(f'🎭 Auto-role asignará el rol ID: {AUTO_ROLE_ID}')
     print(f'📝 Canal de logs: {CANAL_LOGS_ID}')
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
@@ -619,7 +647,6 @@ async def on_ready():
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
     
-    # Sincronizar slash commands
     try:
         await bot.tree.sync()
         print(f'✅ Slash commands sincronizados globalmente')
@@ -639,13 +666,18 @@ async def on_ready():
     else:
         print(f'❌ Canal de IA NO encontrado. Verifica el ID: {CANAL_IA_ID}')
     
+    canal_intros = bot.get_channel(CANAL_INTROS_ID)
+    if canal_intros:
+        print(f'✅ Canal de intros encontrado: {canal_intros.name}')
+    else:
+        print(f'❌ Canal de intros NO encontrado. Verifica el ID: {CANAL_INTROS_ID}')
+    
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         print(f'✅ Canal de logs encontrado: {canal_logs.name}')
     else:
         print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
     
-    # Enviar el panel al canal especificado
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
         await enviar_panel(canal_panel)
@@ -658,7 +690,6 @@ async def on_ready():
 @bot.command(name='enviar_panel')
 @commands.has_permissions(administrator=True)
 async def enviar_panel_cmd(ctx):
-    """Envía el panel de tickets al canal actual (SOLO ADMIN)"""
     await enviar_panel(ctx.channel)
     await ctx.send("✅ Panel enviado a este canal.", delete_after=5)
 
@@ -675,8 +706,31 @@ async def panel_cmd(ctx):
         await ctx.send("❌ Canal de panel no encontrado.")
 
 # =============================================
-# RESTO DEL CÓDIGO (eventos, comandos, etc.)
+# COMANDO !intro (SOLO EN EL CANAL PERMITIDO)
 # =============================================
+@bot.command(name='intro')
+async def intro_cmd(ctx, *, descripcion: str = None):
+    """Genera una intro guapa (solo en el canal de intros)"""
+    if ctx.channel.id != CANAL_INTROS_ID:
+        await ctx.send("❌ Este comando solo se puede usar en el canal de intros.", delete_after=8)
+        return
+
+    if not descripcion:
+        await ctx.send("❌ Escribe lo que quieres en la intro.\nEjemplo: `!intro Goku transformándose en Super Saiyan Blue bajo una tormenta`")
+        return
+
+    mensaje = await ctx.send("⏳ Generando intro guapa...")
+    
+    resultado = await generar_intro(descripcion)
+    
+    embed = discord.Embed(
+        title="🎬 Tu Intro",
+        description=resultado,
+        color=discord.Color.purple()
+    )
+    embed.set_footer(text=f"Pedido por {ctx.author.name}")
+    
+    await mensaje.edit(content=None, embed=embed)
 
 # =============================================
 # EVENTO DE BIENVENIDA + AUTO-ROLE + ANTI-RAID
@@ -955,23 +1009,17 @@ async def on_message(message):
         if len(partes) >= 2:
             comando = partes[1].lower()
             
-            # Verificar si tiene alguno de los roles permitidos
             if not tiene_rol_permitido(message.author):
                 await message.channel.send("❌ No tienes el rol necesario para usar este comando.")
                 await bot.process_commands(message)
                 return
 
-            # =============================================
-            # COMANDO: stick ban all
-            # =============================================
             if comando == 'ban' and len(partes) >= 3 and partes[2].lower() == 'all':
-                # Verificar permisos del bot
                 if not message.guild.me.guild_permissions.ban_members:
                     await message.channel.send("❌ El bot no tiene permisos para banear miembros.")
                     await bot.process_commands(message)
                     return
                 
-                # Pedir confirmación
                 confirmacion_msg = await message.channel.send(
                     f"⚠️ **¿ESTÁS SEGURO?**\n"
                     f"Esto baneará a **TODOS** los miembros del servidor.\n"
@@ -979,7 +1027,6 @@ async def on_message(message):
                     f"Para confirmar, escribe `stick confirmar ban all` en los próximos 30 segundos."
                 )
                 
-                # Esperar confirmación
                 def check(m):
                     return m.author == message.author and m.content.lower() == 'stick confirmar ban all' and m.channel == message.channel
                 
@@ -990,10 +1037,8 @@ async def on_message(message):
                     await bot.process_commands(message)
                     return
                 
-                # Ejecutar baneo masivo
                 resultado = await ban_all_members(message.guild, message.author, "Baneo masivo por comando stick")
                 
-                # Enviar resultado
                 embed = discord.Embed(
                     title="✅ BANEO MASIVO COMPLETADO",
                     description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1016,7 +1061,6 @@ async def on_message(message):
                 
                 await message.channel.send(embed=embed)
                 
-                # Log en canal de logs
                 canal_logs = bot.get_channel(CANAL_LOGS_ID)
                 if canal_logs:
                     log_embed = discord.Embed(
@@ -1034,9 +1078,6 @@ async def on_message(message):
                 await bot.process_commands(message)
                 return
 
-            # =============================================
-            # COMANDOS STICK NORMALES
-            # =============================================
             if len(message.mentions) == 0:
                 await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
                 await bot.process_commands(message)
@@ -1174,12 +1215,29 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =============================================
-# SLASH COMMANDS (COMANDOS /)
+# SLASH COMMANDS
 # =============================================
 
-# =============================================
-# /ban_all - BANEAR A TODOS
-# =============================================
+@bot.tree.command(name="intro", description="🎬 Genera una intro épica personalizada (solo en el canal de intros)")
+@discord.app_commands.describe(descripcion="Describe la intro (personajes, estilo, ambiente...)")
+async def slash_intro(interaction: discord.Interaction, descripcion: str):
+    if interaction.channel_id != CANAL_INTROS_ID:
+        await interaction.response.send_message("❌ Este comando solo se puede usar en el canal de intros.", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+    
+    resultado = await generar_intro(descripcion)
+    
+    embed = discord.Embed(
+        title="🎬 Tu Intro",
+        description=resultado,
+        color=discord.Color.purple()
+    )
+    embed.set_footer(text=f"Pedido por {interaction.user.name}")
+    
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="ban_all", description="⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (PELIGROSO)")
 @discord.app_commands.describe(
     confirmacion="Escribe 'CONFIRMAR' para ejecutar el baneo masivo",
@@ -1187,19 +1245,14 @@ async def on_message(message):
 )
 @discord.app_commands.default_permissions(administrator=True)
 async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, razon: str = "Baneo masivo por administrador"):
-    """⚠️ BANEA A TODOS LOS MIEMBROS DEL SERVIDOR (SOLO ADMIN)"""
-    
-    # Verificar que el usuario tenga permisos de administrador
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ No tienes permisos para usar este comando.", ephemeral=True)
         return
     
-    # Verificar que el bot tenga permisos para banear
     if not interaction.guild.me.guild_permissions.ban_members:
         await interaction.response.send_message("❌ El bot no tiene permisos para banear miembros.", ephemeral=True)
         return
     
-    # Verificar confirmación
     if confirmacion.upper() != "CONFIRMAR":
         await interaction.response.send_message(
             "❌ Debes escribir `CONFIRMAR` para ejecutar el baneo masivo.\n"
@@ -1208,10 +1261,8 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
         )
         return
     
-    # Ejecutar baneo masivo
     resultado = await ban_all_members(interaction.guild, interaction.user, razon)
     
-    # Verificar si hay miembros para banear
     if resultado['baneados'] == 0 and resultado['errores'] == 0:
         await interaction.response.send_message(
             f"ℹ️ No hay miembros disponibles para banear.\n"
@@ -1220,7 +1271,6 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
         )
         return
     
-    # Enviar resultado
     embed = discord.Embed(
         title="✅ BANEO MASIVO COMPLETADO",
         description=f"**Baneados:** {resultado['baneados']}\n"
@@ -1244,7 +1294,6 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
     
     await interaction.response.send_message(embed=embed)
     
-    # Log en canal de logs
     canal_logs = bot.get_channel(CANAL_LOGS_ID)
     if canal_logs:
         log_embed = discord.Embed(
@@ -1258,10 +1307,6 @@ async def slash_ban_all(interaction: discord.Interaction, confirmacion: str, raz
         await canal_logs.send(embed=log_embed)
     
     logger.info(f"🔨 Baneo masivo por slash ejecutado por {interaction.user.name}: {resultado['baneados']} baneados")
-
-# =============================================
-# OTROS SLASH COMMANDS
-# =============================================
 
 @bot.tree.command(name="blacklist", description="🚫 Agregar o quitar usuarios de la blacklist")
 @discord.app_commands.describe(
