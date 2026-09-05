@@ -32,7 +32,7 @@ if not TOKEN:
 
 GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
-CANAL_INTROS_ID = 1541804529694285975   # ← Solo se puede usar !intro y /intro en este canal
+CANAL_INTROS_ID = 1541804529694285975
 
 # ROLES PERMITIDOS
 ROL_PERMITIDO_ID = 1519744694416965782
@@ -41,7 +41,6 @@ ROL_PERMITIDO_3_ID = 1502898587691122688
 ROL_EXENTO_ID = 1519793995264294972
 AUTO_ROLE_ID = 1508133051798917140
 
-# Lista de todos los roles permitidos
 ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
 
 CANAL_PANEL_ID = 1519029606684823732
@@ -51,7 +50,6 @@ CATEGORIA_TICKETS_ID = 1536466416851488828
 CANAL_SUGERENCIAS_ID = 1536466416851488828
 CANAL_LOGS_ID = 1517328591732477962
 
-# Archivos de datos
 ARCHIVO_WARNS = 'warns.json'
 ARCHIVO_BLACKLIST = 'blacklist.json'
 ARCHIVO_ECONOMIA = 'economy.json'
@@ -82,7 +80,6 @@ RAID_TIME_LIMIT = 60
 # FUNCIÓN PARA VERIFICAR ROLES PERMITIDOS
 # =============================================
 def tiene_rol_permitido(member):
-    """Verifica si el miembro tiene alguno de los roles permitidos"""
     for rol_id in ROLES_PERMITIDOS:
         if discord.utils.get(member.roles, id=rol_id):
             return True
@@ -243,7 +240,7 @@ async def eliminar_mute(guild_id, user_id):
         guardar_json(ARCHIVO_MUTES, mutes)
 
 # =============================================
-# FUNCIÓN DE IA PARA GROQ
+# FUNCIÓN DE IA PARA GROQ (CORREGIDA)
 # =============================================
 async def consultar_groq(pregunta):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -254,7 +251,7 @@ async def consultar_groq(pregunta):
     }
     
     data = {
-        "model": "mixtral-8x7b-32768",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": "Eres un asistente útil y amigable. Responde de manera clara y concisa en español."},
             {"role": "user", "content": pregunta}
@@ -292,10 +289,9 @@ async def consultar_groq(pregunta):
         return f"❌ Error inesperado. Por favor, intenta de nuevo más tarde."
 
 # =============================================
-# FUNCIÓN PARA GENERAR INTROS GUAPAS
+# FUNCIÓN PARA GENERAR INTROS GUAPAS (CORREGIDA)
 # =============================================
 async def generar_intro(descripcion: str) -> str:
-    """Genera una intro cinematográfica respetando exactamente lo que pida el usuario"""
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
@@ -317,7 +313,7 @@ Reglas estrictas:
 """
 
     data = {
-        "model": "mixtral-8x7b-32768",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": descripcion}
@@ -333,7 +329,9 @@ Reglas estrictas:
                     resultado = await response.json()
                     return resultado['choices'][0]['message']['content'].strip()
                 else:
-                    return "❌ Error al generar la intro. Intenta de nuevo."
+                    error_text = await response.text()
+                    logger.error(f"Error Groq intros: {response.status} - {error_text}")
+                    return f"❌ Error al generar la intro (código {response.status})."
     except Exception as e:
         logger.error(f"Error generando intro: {e}")
         return "❌ Error al conectar con la IA."
@@ -553,7 +551,7 @@ class TicketButtonsAfterClaim(ui.View):
         await interaction.response.send_modal(NotaModal())
 
 # =============================================
-# FUNCIÓN PARA ENVIAR EL PANEL (REUTILIZABLE)
+# FUNCIÓN PARA ENVIAR EL PANEL
 # =============================================
 async def enviar_panel(canal):
     try:
@@ -578,7 +576,7 @@ async def enviar_panel(canal):
     print(f"✅ Panel enviado a {canal.name}")
 
 # =============================================
-# FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
+# FUNCIÓN PARA BANEAR A TODOS
 # =============================================
 async def ban_all_members(guild, author, razon="Baneo masivo"):
     miembros_a_bannear = []
@@ -685,7 +683,7 @@ async def on_ready():
         print(f'❌ Canal de panel NO encontrado. Verifica el ID: {CANAL_PANEL_ID}')
 
 # =============================================
-# COMANDO PARA ENVIAR EL PANEL MANUALMENTE
+# COMANDOS DE PANEL
 # =============================================
 @bot.command(name='enviar_panel')
 @commands.has_permissions(administrator=True)
@@ -710,7 +708,6 @@ async def panel_cmd(ctx):
 # =============================================
 @bot.command(name='intro')
 async def intro_cmd(ctx, *, descripcion: str = None):
-    """Genera una intro guapa (solo en el canal de intros)"""
     if ctx.channel.id != CANAL_INTROS_ID:
         await ctx.send("❌ Este comando solo se puede usar en el canal de intros.", delete_after=8)
         return
@@ -919,14 +916,13 @@ async def on_member_unban(guild, user):
         print(f"❌ Error al enviar log de unban: {e}")
 
 # =============================================
-# EVENTO ON_MESSAGE: MODERACIÓN + IA + COMANDOS STICK
+# EVENTO ON_MESSAGE
 # =============================================
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    # Verificar blacklist
     blacklist = cargar_json(ARCHIVO_BLACKLIST)
     if str(message.author.id) in blacklist.get('usuarios', []):
         try:
@@ -936,7 +932,6 @@ async def on_message(message):
             pass
         return
 
-    # Sistema de IA
     if message.channel.id == CANAL_IA_ID:
         if bot.user.mentioned_in(message):
             contenido = message.content
@@ -962,7 +957,6 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # Sistema de moderación automática
     if not es_exento(message.author):
         mensaje_borrado = False
         razon = None
@@ -1001,9 +995,6 @@ async def on_message(message):
             except Exception as e:
                 print(f"❌ Error al aplicar moderación: {e}")
 
-    # =============================================
-    # COMANDOS STICK
-    # =============================================
     if message.content.lower().startswith('stick '):
         partes = message.content.split()
         if len(partes) >= 2:
@@ -1020,7 +1011,7 @@ async def on_message(message):
                     await bot.process_commands(message)
                     return
                 
-                confirmacion_msg = await message.channel.send(
+                await message.channel.send(
                     f"⚠️ **¿ESTÁS SEGURO?**\n"
                     f"Esto baneará a **TODOS** los miembros del servidor.\n"
                     f"Esta acción es **IRREVERSIBLE**.\n\n"
