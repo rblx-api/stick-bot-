@@ -43,7 +43,7 @@ AUTO_ROLE_ID = 1508133051798917140
 # Lista de todos los roles permitidos
 ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
 
-CANAL_PANEL_ID = 1519029606684823732
+CANAL_PANEL_ID = 1519029606684823732  # Este es el canal donde se envía el panel
 CANAL_BIENVENIDA = 1502668382640668853
 CANAL_DESPEDIDA = 1502668463435419839
 CATEGORIA_TICKETS_ID = 1536466416851488828
@@ -394,17 +394,11 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTA DEL PANEL CON BOTÓN "OPEN TICKET" (CORREGIDA)
+# VISTA DEL PANEL CON BOTÓN "OPEN TICKET"
 # =============================================
 class PanelView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # El botón se agrega directamente aquí
-        self.add_item(ui.Button(
-            label="🔴 OPEN TICKET", 
-            style=discord.ButtonStyle.danger, 
-            custom_id="open_ticket_button"
-        ))
     
     @ui.button(label="🔴 OPEN TICKET", style=discord.ButtonStyle.danger, custom_id="open_ticket_button")
     async def open_ticket_button(self, interaction: discord.Interaction, button: ui.Button):
@@ -515,6 +509,52 @@ class TicketButtonsAfterClaim(ui.View):
         await interaction.response.send_modal(NotaModal())
 
 # =============================================
+# FUNCIÓN PARA ENVIAR EL PANEL (REUTILIZABLE)
+# =============================================
+async def enviar_panel(canal):
+    """Función para enviar el panel de tickets a un canal"""
+    try:
+        # Limpiar mensajes antiguos del bot
+        async for msg in canal.history(limit=100):
+            if msg.author == bot.user:
+                await msg.delete()
+    except:
+        pass
+    
+    embed = discord.Embed(
+        title="═══════════════════════════════════════════════════════════",
+        description=(
+            "🔴🔴🔴  𝐀𝐁𝐑𝐄 𝐔𝐍 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
+            "═══════════════════════════════════════════════════════════\n\n"
+            "   📩  ¿Necesitas ayuda con algo?\n"
+            "   ✅  Soporte técnico\n"
+            "   ✅  Consultas generales\n"
+            "   ✅  Reportes de problemas\n"
+            "   ✅  Solicitudes especiales\n\n"
+            "   👉  Presiona el botón **OPEN TICKET**\n"
+            "   📝  Describe el motivo de tu ticket\n"
+            "   🎯  Un miembro del staff te atenderá\n\n"
+            "═══════════════════════════════════════════════════════════\n"
+            "🔴🔴🔴  𝐎𝐏𝐄𝐍 𝐀 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
+            "═══════════════════════════════════════════════════════════\n\n"
+            "   📩  Do you need help with something?\n"
+            "   ✅  Technical support\n"
+            "   ✅  General inquiries\n"
+            "   ✅  Problem reports\n"
+            "   ✅  Special requests\n\n"
+            "   👉  Press the **OPEN TICKET** button\n"
+            "   📝  Describe the reason for your ticket\n"
+            "   🎯  A staff member will assist you\n\n"
+            "═══════════════════════════════════════════════════════════"
+        ),
+        color=discord.Color.red()
+    )
+    embed.set_footer(text="Presiona el botón 'OPEN TICKET' para abrir un ticket.")
+    view = PanelView()
+    await canal.send(embed=embed, view=view)
+    print(f"✅ Panel enviado a {canal.name}")
+
+# =============================================
 # FUNCIÓN PARA BANEAR A TODOS (REUTILIZABLE)
 # =============================================
 async def ban_all_members(guild, author, razon="Baneo masivo"):
@@ -582,7 +622,7 @@ async def ban_all_members(guild, author, razon="Baneo masivo"):
     }
 
 # =============================================
-# EVENTO ON_READY (PANEL ACTUALIZADO)
+# EVENTO ON_READY
 # =============================================
 @bot.event
 async def on_ready():
@@ -592,6 +632,7 @@ async def on_ready():
     print(f'📝 Canal de logs: {CANAL_LOGS_ID}')
     print(f'🔑 API Key de Groq: {"✅ Configurada" if GROQ_API_KEY else "❌ No configurada"}')
     print(f'👥 Roles permitidos: {ROLES_PERMITIDOS}')
+    print(f'📌 Canal del panel: {CANAL_PANEL_ID}')
     
     await cargar_mutes()
     print(f'✅ Mutes cargados correctamente')
@@ -622,49 +663,38 @@ async def on_ready():
     else:
         print(f'❌ Canal de logs NO encontrado. Verifica el ID: {CANAL_LOGS_ID}')
     
+    # Enviar el panel al canal especificado
     canal_panel = bot.get_channel(CANAL_PANEL_ID)
     if canal_panel:
-        try:
-            async for msg in canal_panel.history(limit=100):
-                if msg.author == bot.user:
-                    await msg.delete()
-        except:
-            pass
-        
-        embed = discord.Embed(
-            title="═══════════════════════════════════════════════════════════",
-            description=(
-                "🔴🔴🔴  𝐀𝐁𝐑𝐄 𝐔𝐍 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
-                "═══════════════════════════════════════════════════════════\n\n"
-                "   📩  ¿Necesitas ayuda con algo?\n"
-                "   ✅  Soporte técnico\n"
-                "   ✅  Consultas generales\n"
-                "   ✅  Reportes de problemas\n"
-                "   ✅  Solicitudes especiales\n\n"
-                "   👉  Presiona el botón **OPEN TICKET**\n"
-                "   📝  Describe el motivo de tu ticket\n"
-                "   🎯  Un miembro del staff te atenderá\n\n"
-                "═══════════════════════════════════════════════════════════\n"
-                "🔴🔴🔴  𝐎𝐏𝐄𝐍 𝐀 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
-                "═══════════════════════════════════════════════════════════\n\n"
-                "   📩  Do you need help with something?\n"
-                "   ✅  Technical support\n"
-                "   ✅  General inquiries\n"
-                "   ✅  Problem reports\n"
-                "   ✅  Special requests\n\n"
-                "   👉  Press the **OPEN TICKET** button\n"
-                "   📝  Describe the reason for your ticket\n"
-                "   🎯  A staff member will assist you\n\n"
-                "═══════════════════════════════════════════════════════════"
-            ),
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Presiona el botón 'OPEN TICKET' para abrir un ticket.")
-        view = PanelView()
-        await canal_panel.send(embed=embed, view=view)
-        print(f"✅ Panel enviado a {canal_panel.name}")
+        await enviar_panel(canal_panel)
     else:
-        print("❌ Canal de panel no encontrado. Verifica el ID.")
+        print(f'❌ Canal de panel NO encontrado. Verifica el ID: {CANAL_PANEL_ID}')
+
+# =============================================
+# COMANDO PARA ENVIAR EL PANEL MANUALMENTE
+# =============================================
+@bot.command(name='enviar_panel')
+@commands.has_permissions(administrator=True)
+async def enviar_panel_cmd(ctx):
+    """Envía el panel de tickets al canal actual (SOLO ADMIN)"""
+    await enviar_panel(ctx.channel)
+    await ctx.send("✅ Panel enviado a este canal.", delete_after=5)
+
+@bot.command(name='panel')
+async def panel_cmd(ctx):
+    if not tiene_rol_permitido(ctx.author):
+        await ctx.send("❌ No tienes permiso para usar este comando.")
+        return
+    canal_panel = bot.get_channel(CANAL_PANEL_ID)
+    if canal_panel:
+        await enviar_panel(canal_panel)
+        await ctx.send(f"✅ Panel enviado a {canal_panel.mention}")
+    else:
+        await ctx.send("❌ Canal de panel no encontrado.")
+
+# =============================================
+# RESTO DEL CÓDIGO (eventos, comandos, etc.)
+# =============================================
 
 # =============================================
 # EVENTO DE BIENVENIDA + AUTO-ROLE + ANTI-RAID
@@ -1446,13 +1476,6 @@ async def slash_clear_spam(interaction: discord.Interaction):
 # =============================================
 # COMANDOS CON PREFIJO
 # =============================================
-@bot.command(name='panel')
-async def panel_cmd(ctx):
-    if not tiene_rol_permitido(ctx.author):
-        await ctx.send("❌ No tienes permiso para usar este comando.")
-        return
-    await ctx.send("✅ El panel se envía automáticamente al canal configurado.")
-
 @bot.command(name='clear_spam')
 @commands.has_permissions(administrator=True)
 async def clear_spam_cmd(ctx):
