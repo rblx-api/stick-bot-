@@ -43,7 +43,7 @@ AUTO_ROLE_ID = 1508133051798917140
 # Lista de todos los roles permitidos
 ROLES_PERMITIDOS = [ROL_PERMITIDO_ID, ROL_PERMITIDO_2_ID, ROL_PERMITIDO_3_ID]
 
-CANAL_PANEL_ID = 1519029606684823732  # Este es el canal donde se envía el panel
+CANAL_PANEL_ID = 1519029606684823732
 CANAL_BIENVENIDA = 1502668382640668853
 CANAL_DESPEDIDA = 1502668463435419839
 CATEGORIA_TICKETS_ID = 1536466416851488828
@@ -308,9 +308,9 @@ async def obtener_categoria(guild):
 # =============================================
 class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
     razon = ui.TextInput(
-        label="¿Cuál es la razón para abrir este ticket?",
+        label="¿Qué necesitas?",
         style=discord.TextStyle.paragraph,
-        placeholder="Describe el motivo de tu ticket aquí...",
+        placeholder="Describe lo que necesitas aquí...",
         required=True,
         max_length=1000
     )
@@ -355,7 +355,7 @@ class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
 
             embed = discord.Embed(
                 title=f"📩 Ticket de {usuario.name}",
-                description=f"**Razón:**\n{razon}\n\n*Un miembro del staff te atenderá en breve.*",
+                description=f"**Necesita:**\n{razon}\n\n*Un miembro del staff te atenderá en breve.*",
                 color=discord.Color.blue()
             )
             embed.set_footer(text=f"ID: {canal.id} | Abierto por {usuario.name}")
@@ -521,31 +521,13 @@ async def enviar_panel(canal):
     except:
         pass
     
+    # Panel simplificado con solo el texto "¿Necesitas ayuda? Abre un ticket y dinos qué necesitas"
     embed = discord.Embed(
-        title="═══════════════════════════════════════════════════════════",
         description=(
-            "🔴🔴🔴  𝐀𝐁𝐑𝐄 𝐔𝐍 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
-            "═══════════════════════════════════════════════════════════\n\n"
-            "   📩  ¿Necesitas ayuda con algo?\n"
-            "   ✅  Soporte técnico\n"
-            "   ✅  Consultas generales\n"
-            "   ✅  Reportes de problemas\n"
-            "   ✅  Solicitudes especiales\n\n"
-            "   👉  Presiona el botón **OPEN TICKET**\n"
-            "   📝  Describe el motivo de tu ticket\n"
-            "   🎯  Un miembro del staff te atenderá\n\n"
-            "═══════════════════════════════════════════════════════════\n"
-            "🔴🔴🔴  𝐎𝐏𝐄𝐍 𝐀 𝐓𝐈𝐂𝐊𝐄𝐓  🔴🔴🔴\n"
-            "═══════════════════════════════════════════════════════════\n\n"
-            "   📩  Do you need help with something?\n"
-            "   ✅  Technical support\n"
-            "   ✅  General inquiries\n"
-            "   ✅  Problem reports\n"
-            "   ✅  Special requests\n\n"
-            "   👉  Press the **OPEN TICKET** button\n"
-            "   📝  Describe the reason for your ticket\n"
-            "   🎯  A staff member will assist you\n\n"
-            "═══════════════════════════════════════════════════════════"
+            "🔴🔴🔴 **¿NECESITAS AYUDA?** 🔴🔴🔴\n\n"
+            "**Abre un ticket y dinos qué necesitas.**\n\n"
+            "Presiona el botón **OPEN TICKET** y describe tu solicitud.\n"
+            "Un miembro del staff te atenderá lo antes posible."
         ),
         color=discord.Color.red()
     )
