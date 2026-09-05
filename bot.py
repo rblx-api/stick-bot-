@@ -33,10 +33,10 @@ if not TOKEN:
 GROQ_API_KEY = "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"
 CANAL_IA_ID = 1536862569497624606
 
-# ROLES PERMITIDOS (Agregados los nuevos)
+# ROLES PERMITIDOS
 ROL_PERMITIDO_ID = 1519744694416965782
-ROL_PERMITIDO_2_ID = 1498525987783053473  # Nuevo rol permitido
-ROL_PERMITIDO_3_ID = 1502898587691122688  # Nuevo rol permitido
+ROL_PERMITIDO_2_ID = 1498525987783053473
+ROL_PERMITIDO_3_ID = 1502898587691122688
 ROL_EXENTO_ID = 1519793995264294972
 AUTO_ROLE_ID = 1508133051798917140
 
@@ -304,7 +304,7 @@ async def obtener_categoria(guild):
     return categoria
 
 # =============================================
-# MODAL PARA RAZÓN DEL TICKET (NUEVO)
+# MODAL PARA RAZÓN DEL TICKET
 # =============================================
 class TicketReasonModal(ui.Modal, title="📩 Abrir Ticket"):
     razon = ui.TextInput(
@@ -394,14 +394,18 @@ class NotaModal(ui.Modal, title="Agregar Nota al Ticket"):
         await interaction.response.send_message("✅ Nota agregada", ephemeral=True)
 
 # =============================================
-# VISTA DEL PANEL CON BOTÓN "OPEN TICKET"
+# VISTA DEL PANEL CON BOTÓN "OPEN TICKET" (CORREGIDA)
 # =============================================
 class PanelView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Solo un botón: Open Ticket
-        self.add_item(ui.Button(label="🔴 OPEN TICKET", style=discord.ButtonStyle.danger, custom_id="open_ticket_button"))
-
+        # El botón se agrega directamente aquí
+        self.add_item(ui.Button(
+            label="🔴 OPEN TICKET", 
+            style=discord.ButtonStyle.danger, 
+            custom_id="open_ticket_button"
+        ))
+    
     @ui.button(label="🔴 OPEN TICKET", style=discord.ButtonStyle.danger, custom_id="open_ticket_button")
     async def open_ticket_button(self, interaction: discord.Interaction, button: ui.Button):
         """Abre el modal para solicitar la razón del ticket"""
@@ -932,7 +936,7 @@ async def on_message(message):
                 print(f"❌ Error al aplicar moderación: {e}")
 
     # =============================================
-    # COMANDOS STICK (warn, unwarn, ban, mute, unmute, ban all)
+    # COMANDOS STICK
     # =============================================
     if message.content.lower().startswith('stick '):
         partes = message.content.split()
@@ -1019,7 +1023,7 @@ async def on_message(message):
                 return
 
             # =============================================
-            # COMANDOS STICK NORMALES (warn, unwarn, ban, mute, unmute)
+            # COMANDOS STICK NORMALES
             # =============================================
             if len(message.mentions) == 0:
                 await message.channel.send("❌ Debes mencionar a un usuario: `stick warn/unwarn/ban/mute/unmute @usuario`")
@@ -1440,7 +1444,7 @@ async def slash_clear_spam(interaction: discord.Interaction):
     logger.info(f"🧹 Contador de spam limpiado por {interaction.user.name}")
 
 # =============================================
-# COMANDOS CON PREFIJO (Mantenidos para compatibilidad)
+# COMANDOS CON PREFIJO
 # =============================================
 @bot.command(name='panel')
 async def panel_cmd(ctx):
